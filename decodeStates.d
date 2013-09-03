@@ -28,6 +28,7 @@ import std.typecons;
 import std.regex;
 import std.conv;
 import std.range;
+import std.math;
 import model.msmc_hmm;
 import model.data;
 import model.time_intervals;
@@ -120,7 +121,9 @@ void run() {
 
       auto posterior = forwardState.vec.dup;
       posterior[] *= backwardState.vec[];
-
+      // stderr.writeln(segsite.pos, "\t", forwardState.vec[0..5], "\t", backwardState.vec[0..5]);
+      assert(!posterior.reduce!"a+b"().isnan());
+      
       tState = getMaxPosterior(posterior);
       auto tMarginalState = model.marginalIndex.getMarginalIndexFromIndex(tState);
       t = model.timeIntervals.meanTime(tMarginalState, nrHaplotypes);
@@ -135,9 +138,9 @@ void run() {
     auto tTotSimState = model.tTotIntervals.findIntervalForTime(tTotSim);
     auto al = segsite.obs[0] > 0 ? allele_order[segsite.obs[0] - 1] : missingAlleleString;
     
-    auto eType = model.emissionRate.emissionType(al.idup, tSimPair[1], tSimPair[2]);
+    auto eType = getEmissionType(al.idup, tSimPair[1], tSimPair[2]);
     
-    outputLines ~= format("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s", chr, segsite.pos, al, eType.to!int(), t, 
+    outputLines ~= format("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s", chr, segsite.pos, al, eType, t, 
                           tState, tTot, segsite.i_Ttot, tSim, tSimState, tTotSim, tTotSimState);
   }
   
@@ -152,7 +155,8 @@ MSMC_hmm makeHMM(MSMCmodel model, SegSite_t[] segsites) {
   auto propagationCore = new PropagationCoreFast(model, 1000);
   
   stderr.writeln("estimating branchlengths");
-  estimateTotalBranchlengths(segsites, model, nrTtotSegments);
+  // estimateTotalBranchlengths(segsites, model, nrTtotSegments);
+  readTotalBranchlengths(segsites, model, nrTtotSegments, treeFileName);
 
   stderr.writeln("generating Hidden Markov Model");
   return new MSMC_hmm(propagationCore, segsites);
@@ -185,7 +189,8 @@ class SimStateParser {
       auto l = fields[0].to!size_t;
       auto str = fields[1];
       auto tFirst = getFirst(str);
-      auto tTot = getTtot(str);
+      auto tTot = getTotalLeafLength(str);
+      // stderr.writeln(str, " ", tTot);
       pos += l;
       data ~= tuple(pos, tFirst[0], tFirst[1], tFirst[2], tTot);
     }
@@ -196,8 +201,6 @@ class SimStateParser {
     auto a = data[index][1];
     auto i = data[index][2];
     auto j = data[index][3];
-    if(i > j)
-      swap(i, j);
     return tuple(a, i, j);
   }
   
@@ -205,7 +208,7 @@ class SimStateParser {
     auto index = getIndex(pos);
     return data[index][4];
   }
-  
+
   private size_t getIndex(size_t pos) {
     while(data[lastIndex][0] < pos)
       lastIndex += 1;
@@ -214,25 +217,84 @@ class SimStateParser {
     return lastIndex;
   }
   
-  private auto getFirst(in char[] str) {
-    static auto tfirstRegex = regex(r"\((\d+):([\d\.e-]+),(\d+):[\d\.e-]+\)", "g");
-    
-    auto matches = match(str, tfirstRegex);
-    auto triples = matches.map!(m => tuple(2.0 * m.captures[2].to!double(),
-                                           m.captures[1].to!size_t(),
-                                           m.captures[3].to!size_t()))();
-    auto min_triple = triples.minCount!"a[0] < b[0]"()[0];
-    // stderr.writeln(str, ", first: ", min_triple[0], ", ", min_triple[1], ", ", min_triple[2]);
-    return min_triple;
-  }
-  
-  private double getTtot(in char[] str) {
-    static auto tTotRegex = regex(r":([\d+\.]+)", "g");
+}
 
-    auto matches = match(str, tTotRegex);
-    auto times = matches.map!(m => m.captures[1].to!double());
-    auto sum = 2.0 * times.reduce!"a+b"();
-    // stderr.writeln(str, ", times: ", times.array(), ", tTot: ", sum);
-    return sum;
+private auto getFirst(in char[] str) {
+  static auto tfirstRegex = regex(r"\((\d+):([\d\.e-]+),(\d+):[\d\.e-]+\)", "g");
+  
+  auto matches = match(str, tfirstRegex);
+  auto triples = matches.map!(m => tuple(2.0 * m.captures[2].to!double(),
+                                         m.captures[1].to!size_t(),
+                                         m.captures[3].to!size_t()))();
+  auto min_triple = triples.minCount!"a[0] < b[0]"()[0];
+  if(min_triple[1] > min_triple[2])
+    swap(min_triple[1], min_triple[2]);
+  return min_triple;
+}
+
+version(unittest) {
+  import std.math;
+} 
+
+unittest {
+
+  auto tree = "(5:0.1,((2:8.1,1:8.1):0.1,((4:0.1,0:0.1):0.004,3:0.1):0.004):0.01);";
+  auto f = getFirst(tree);
+  assert(approxEqual(f[0], 2.0 * 0.1, 0.00001, 0.0));
+  assert(f[1] == 0);
+  assert(f[2] == 4);
+  tree = "((((2:8.3,1:8.3):0.12,(0:0.11,3:0.11):0.004):0.0046,4:0.12):1.06,5:1.19);";
+  f = getFirst(tree);
+  assert(approxEqual(f[0], 2.0 * 0.11, 0.00001, 0.0));
+  assert(f[1] == 0);
+  assert(f[2] == 3);
+}
+
+private double getTotalBranchLength(in char[] str) {
+  static auto tTotRegex = regex(r":([\d+\.e-]+)", "g");
+
+  auto matches = match(str, tTotRegex);
+  auto times = matches.map!(m => m.captures[1].to!double());
+  auto sum = 2.0 * times.reduce!"a+b"();
+  return sum;
+}
+
+unittest {
+  auto tree = "(5:0.1,((2:8.1,1:8.1):0.1,((4:0.1,0:0.1):0.004,3:0.1):0.004):0.01);";
+  assert(approxEqual(getTotalBranchLength(tree), 2.0 * 16.718, 0.00001, 0.0));
+  tree = "((((2:8.3,1:8.3):0.12,(0:0.11,3:0.11):0.004):0.0046,4:0.12):1.06,5:1.19);";
+  assert(approxEqual(getTotalBranchLength(tree), 2.0 * 19.3186, 0.0001, 0.0));
+}
+
+
+double getTotalLeafLength(in char[] str) {
+  static auto tTotRegex = regex(r"\d+:([\d+\.e-]+)", "g");
+
+  auto matches = match(str, tTotRegex);
+  auto times = matches.map!(m => m.captures[1].to!double());
+  auto sum = 2.0 * times.reduce!"a+b"();
+  return sum;
+}
+
+unittest {
+  auto tree = "(5:0.1,((2:8.1,1:8.1):0.1,((4:0.1,0:0.1):0.004,3:0.1):0.004):0.01);";
+  assert(approxEqual(getTotalLeafLength(tree), 2.0 * 16.6, 0.0001, 0.0));
+  tree = "((((2:8.3,1:8.3):0.122683,(0:0.11,3:0.11):0.00415405):0.00462688,4:0.12):1.06837,5:1.19);";
+  assert(approxEqual(getTotalLeafLength(tree), 2.0 * 18.13, 0.0001, 0.0));
+}
+
+string getEmissionType(string alleles, size_t ind1, size_t ind2) {
+  auto count_0 = count(alleles, '0');
+  auto count_1 = alleles.length - count_0;
+  if(count_0 == 0 || count_1 == 0)
+    return "noMut";
+  if(count_0 == 1 || count_1 == 1) {
+    if(alleles[ind1] == alleles[ind2])
+      return "singletonOutside";
+    else
+      return "singletonInside";
   }
+  if(alleles[ind1] == alleles[ind2])
+    return "multiton";
+  return "doubleMut";
 }

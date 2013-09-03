@@ -31,7 +31,7 @@ import model.transition_rate;
 import model.coalescence_rate;
 
 class MSMCmodel {
-  const EmissionRate emissionRate;
+  double mutationRate;
   const TransitionRate transitionRate;
   const MarginalTripleIndex marginalIndex;
   const TimeIntervals timeIntervals;
@@ -40,9 +40,10 @@ class MSMCmodel {
 
   this(double mutationRate, double recombinationRate, in size_t[] subpopLabels, in double[] lambdaVec, in double[] timeBoundaries, size_t nrTtotIntervals) {
     auto nrHaplotypes = cast(size_t)subpopLabels.length;
-    emissionRate = new EmissionRate(nrHaplotypes, mutationRate);
+    this.mutationRate = mutationRate;
     timeIntervals = new TimeIntervals(timeBoundaries ~ [double.infinity]);
-    tTotIntervals = TimeIntervals.standardTotalBranchlengthIntervals(nrTtotIntervals, nrHaplotypes);
+    // tTotIntervals = TimeIntervals.standardTotalBranchlengthIntervals(nrTtotIntervals, nrHaplotypes);
+    tTotIntervals = TimeIntervals.standardTotalLeaflengthIntervals(nrTtotIntervals, nrHaplotypes);
     marginalIndex = new MarginalTripleIndex(nrTimeIntervals, subpopLabels);
     coal = new PiecewiseConstantCoalescenceRate(marginalIndex, lambdaVec);
     transitionRate = new TransitionRate(marginalIndex, coal, timeIntervals, recombinationRate);
@@ -69,18 +70,19 @@ class MSMCmodel {
   
   double emissionProb(string alleles, size_t aij, size_t tTotIndex) const {
     auto triple = marginalIndex.getTripleFromIndex(aij);
-    auto type = emissionRate.emissionType(alleles, triple.ind1, triple.ind2);
     // auto time = timeIntervals.meanTimeWithLambda(triple.time, coal.getTotalMarginalLambda(triple.time));
     auto time = timeIntervals.meanTimeWithLambda(triple.time, nrHaplotypes);
     auto tTot = tTotIntervals.meanTime(tTotIndex, nrHaplotypes);
-    return emissionRate.emissionProb(type, time, tTot);
+    return model.emission_rate.emissionProb(alleles, mutationRate, time, triple.ind1, triple.ind2, tTot);
   }
   
   double emissionProbHom(size_t time_index, size_t ttotIndex) const {
     // auto time = timeIntervals.meanTimeWithLambda(time_index, coal.getTotalMarginalLambda(time_index));
     auto time = timeIntervals.meanTimeWithLambda(time_index, nrHaplotypes);
     auto tTot = tTotIntervals.meanTime(ttotIndex, nrHaplotypes);
-    return emissionRate.emissionProb(EmissionRate.Observation_t.NoMut, time, tTot);
+    auto alleles = new char[nrHaplotypes];
+    alleles[] = '0';
+    return model.emission_rate.emissionProb(alleles.idup, mutationRate, time, 0UL, 1UL, tTot);
   }
   
   @property size_t nrHaplotypes() const {
@@ -93,10 +95,6 @@ class MSMCmodel {
   
   @property size_t nrStates() const {
     return marginalIndex.nrStates;
-  }
-  
-  @property double mutationRate() const {
-    return emissionRate.mu;
   }
   
   @property double recombinationRate() const {

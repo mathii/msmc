@@ -141,7 +141,7 @@ class MSMC_hmm {
             dummy_site, segsites[index]);
       }
       scalingFactors[index] = forwardStates[index].norm;
-      assert(scalingFactors[index] > 0.0, text(scalingFactors));
+      assert(scalingFactors[index] > 0.0, text(index, ", ", scalingFactors[index]));
       forwardStates[index].scale(1.0 / scalingFactors[index]);
     }
     have_run_forward = true;
@@ -256,11 +256,8 @@ class MSMC_hmm {
     while(segsites[indexCache].pos < pos) {
       ++indexCache;
     }
-    if(indexCache > 0) {
-      while(segsites[indexCache - 1].pos >= pos) {
-        if(--indexCache == 0)
-            break;
-      }
+    while(indexCache > 0 && segsites[indexCache - 1].pos >= pos) {
+      --indexCache;
     }
     return indexCache;
   }
@@ -295,6 +292,7 @@ class MSMC_hmm {
         currentBackwardIndex -= 1;
       }
     }
+    // stderr.writefln("%s\t%s\t%s\t%s", index, segsites[index].pos, currentBackwardState.vec[0..5], scalingFactors[index]);
     return currentBackwardState;
   }
 

@@ -70,6 +70,13 @@ class TimeIntervals {
     return new TimeIntervals(boundaries);
   }
   
+  static TimeIntervals standardTotalLeaflengthIntervals(size_t nrTimeSegments, size_t nrHaplotypes) {
+    auto expectedTleaf = 2.0;
+    auto boundaries = getBoundaries(&computeQuantileBoundary, nrTimeSegments, expectedTleaf);
+    return new TimeIntervals(boundaries);
+  }
+  
+  
   static double computeWattersonFactor(size_t nrHaplotypes) {
     auto wattersonFactor = 0.0;
     foreach(i; 1 .. nrHaplotypes)
