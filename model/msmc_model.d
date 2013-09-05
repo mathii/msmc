@@ -73,7 +73,7 @@ class MSMCmodel {
     // auto time = timeIntervals.meanTimeWithLambda(triple.time, coal.getTotalMarginalLambda(triple.time));
     auto time = timeIntervals.meanTimeWithLambda(triple.time, nrHaplotypes);
     auto tTot = tTotIntervals.meanTime(tTotIndex, nrHaplotypes);
-    return model.emission_rate.emissionProb(alleles, mutationRate, time, triple.ind1, triple.ind2, tTot);
+    return model.emission_rate.emissionProb(alleles, this, time, triple.ind1, triple.ind2, tTot);
   }
   
   double emissionProbHom(size_t time_index, size_t ttotIndex) const {
@@ -82,7 +82,7 @@ class MSMCmodel {
     auto tTot = tTotIntervals.meanTime(ttotIndex, nrHaplotypes);
     auto alleles = new char[nrHaplotypes];
     alleles[] = '0';
-    return model.emission_rate.emissionProb(alleles.idup, mutationRate, time, 0UL, 1UL, tTot);
+    return model.emission_rate.emissionProb(alleles.idup, this, time, 0UL, 1UL, tTot);
   }
   
   @property size_t nrHaplotypes() const {
@@ -103,6 +103,10 @@ class MSMCmodel {
   
   @property double[] lambdaVec() const {
     return coal.lambdaVec.dup;
+  }
+  
+  double lambda(size_t index) const {
+    return coal.lambdaVec[index];
   }
   
   @property size_t[] subpopLabels() const {

@@ -63,7 +63,7 @@ string[] canonicalAlleleOrder(size_t M) {
   string[] allele_order;
   assert(M >= 2);
   auto formatStr = format("%%0%db", M);
-  foreach(i; 0 .. 2 ^^ (M - 1)) {
+  foreach(i; 0 .. 2 ^^ M) {
     allele_order ~= format(formatStr, i);
   }
   return allele_order;
@@ -71,59 +71,35 @@ string[] canonicalAlleleOrder(size_t M) {
 
 unittest {
   writeln("test canonicalAlleleOrder");
-  assert(canonicalAlleleOrder(2) == ["00", "01"]);
-  assert(canonicalAlleleOrder(3) == ["000", "001", "010", "011"]);
+  assert(canonicalAlleleOrder(2) == ["00", "01", "10", "11"]);
+  assert(canonicalAlleleOrder(3) == ["000", "001", "010", "011", "100", "101", "110", "111"]);
   assert(canonicalAlleleOrder(4) == [
-      "0000", "0001", "0010", "0011", "0100", "0101", "0110", "0111"
-    ]);
-  assert(canonicalAlleleOrder(5) == [
-      "00000", "00001", "00010", "00011", "00100", "00101", "00110", "00111",
-      "01000", "01001", "01010", "01011", "01100", "01101", "01110", "01111"
-    ]);
-  assert(canonicalAlleleOrder(6) == [
-      "000000", "000001", "000010", "000011", "000100", "000101", "000110", "000111",
-      "001000", "001001", "001010", "001011", "001100", "001101", "001110", "001111",
-      "010000", "010001", "010010", "010011", "010100", "010101", "010110", "010111",
-      "011000", "011001", "011010", "011011", "011100", "011101", "011110", "011111"
+      "0000", "0001", "0010", "0011", "0100", "0101", "0110", "0111",
+      "1000", "1001", "1010", "1011", "1100", "1101", "1110", "1111"
     ]);
 }
-
-string invertAllele(string allele) {
-  auto newA = new char[allele.length];
-  foreach(i, a; allele) {
-    assert(a == '0' || a == '1');
-    newA[i] = a == '0' ? '1' : '0';
-  }
-  return newA.idup;
-}
-
-unittest {
-  writeln("test invertAllele");
-  assert(invertAllele("0011") == "1100");
-  assert(invertAllele("1111") == "0000");
-  assert(invertAllele("0010") == "1101");
-  assert(invertAllele("01") == "10");
-}
-
 
 // this function converts any allele string to a sequence of 0's and 1's
-string normalizeAlleleString(string alleles) {
-  char firstAllele = alleles[0];
+
+string normalizeAlleleString(string alleles, char ancestral = '-') {
+  if(ancestral == '-') {
+    ancestral = alleles[0];
+  }
   char[] ret;
   foreach(allele; alleles) {
-    ret ~= allele == firstAllele ? '0' : '1';
+    ret ~= allele == ancestral ? '0' : '1';
   }
   return ret.idup;
 }
 
 unittest {
   writeln("test normalizeAlleleString");
-  assert(normalizeAlleleString("AACC") == "0011");
-  assert(normalizeAlleleString("1101") == "0010");
-  assert(normalizeAlleleString("ACTG") == "0111");
-  assert(normalizeAlleleString("GGGG") == "0000");
-  assert(normalizeAlleleString("GG") == "00");
-  assert(normalizeAlleleString("TC") == "01");
+  assert(normalizeAlleleString("AACC", 'A') == "0011");
+  assert(normalizeAlleleString("1101", '1') == "0010");
+  assert(normalizeAlleleString("ACTG", 'A') == "0111");
+  assert(normalizeAlleleString("GGGG", 'G') == "0000");
+  assert(normalizeAlleleString("GG", 'G') == "00");
+  assert(normalizeAlleleString("TC", 'T') == "01");
 }
 
 void checkDataLine(const char[] line) {
@@ -151,7 +127,6 @@ size_t getNrHaplotypesFromFile(string filename) {
   else {
     auto splitted = fields[3].split(",");
     return cast(size_t)splitted[0].length;
-  
   }
 }
 
@@ -179,7 +154,6 @@ SegSite_t[] readSegSites(string filename) {
   auto index = 1; // index=0 indicates missing data 
   foreach(allele; allele_order) {
     obsMap[allele] = index;
-    obsMap[invertAllele(allele)] = index; // symmetrizing states: 1101 is the same as 0010 !
     ++index;
   }
   

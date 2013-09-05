@@ -43,7 +43,7 @@ double recombinationRate;
 size_t[] subpopLabels;
 auto timeSegmentPattern = [1UL, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2];
 uint nrThreads;
-auto nrTtotSegments = 10UL;
+auto nrTtotSegments = 1UL;
 auto nrTtotInternal = 40UL;
 auto verbose = false;
 string outFilePrefix;

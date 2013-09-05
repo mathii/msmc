@@ -34,7 +34,6 @@ import model.data;
 import model.time_intervals;
 import model.msmc_model;
 import model.propagation_core_fastImpl;
-import branchlength;
 import model.triple_index;
 import model.stateVec;
 
@@ -88,7 +87,7 @@ Options:
 void run() {
   
   auto subpopLabels = new size_t[nrHaplotypes];
-  auto model = MSMCmodel.withTrivialLambda(mutationRate, recombinationRate, subpopLabels, nrTimeSegments, nrTtotSegments);
+  auto model = MSMCmodel.withTrivialLambda(mutationRate, recombinationRate, subpopLabels, nrTimeSegments, 4);
   
   auto segsites = readSegSites(inputFileName);
   auto chr = File(inputFileName, "r").byLine().front().strip().split()[0].dup;
@@ -104,14 +103,17 @@ void run() {
   }
   
   writeln("chr\tpos\talleles\ttype\tt\ttState\tT\tTState\ttSim\ttSimState\tTSim\tTSimState");
-  
   auto allele_order = canonicalAlleleOrder(nrHaplotypes);
   auto missingAlleleString = new char[nrHaplotypes];
   missingAlleleString[] = '?';
   
   string[] outputLines;
   auto simStateParser = new SimStateParser(treeFileName, nrTimeSegments, nrTtotSegments);
-  foreach_reverse(segsite; segsites) {
+  
+  // auto raw_allele_strings = File(inputFileName, "r").byLine.map!(line => line.strip().split()[3].idup).array();
+  // assert(raw_allele_strings.length == segsites.length);
+  
+  foreach_reverse(i, segsite; segsites) {
     double t, tTot;
     size_t tState;
 
@@ -139,9 +141,9 @@ void run() {
     auto al = segsite.obs[0] > 0 ? allele_order[segsite.obs[0] - 1] : missingAlleleString;
     
     auto eType = getEmissionType(al.idup, tSimPair[1], tSimPair[2]);
-    
-    outputLines ~= format("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s", chr, segsite.pos, al, eType, t, 
-                          tState, tTot, segsite.i_Ttot, tSim, tSimState, tTotSim, tTotSimState);
+
+    outputLines ~= format("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s", chr, segsite.pos, al, 
+                          eType, t, tState, tTot, segsite.i_Ttot, tSim, tSimState, tTotSim, tTotSimState);
   }
   
   foreach_reverse(line; outputLines) {
@@ -154,9 +156,9 @@ MSMC_hmm makeHMM(MSMCmodel model, SegSite_t[] segsites) {
   stderr.writeln("generating propagation core");
   auto propagationCore = new PropagationCoreFast(model, 1000);
   
-  stderr.writeln("estimating branchlengths");
+  // stderr.writeln("estimating branchlengths");
   // estimateTotalBranchlengths(segsites, model, nrTtotSegments);
-  readTotalBranchlengths(segsites, model, nrTtotSegments, treeFileName);
+  // readTotalBranchlengths(segsites, model, nrTtotSegments, treeFileName);
 
   stderr.writeln("generating Hidden Markov Model");
   return new MSMC_hmm(propagationCore, segsites);
@@ -284,17 +286,18 @@ unittest {
 }
 
 string getEmissionType(string alleles, size_t ind1, size_t ind2) {
-  auto count_0 = count(alleles, '0');
-  auto count_1 = alleles.length - count_0;
-  if(count_0 == 0 || count_1 == 0)
-    return "noMut";
-  if(count_0 == 1 || count_1 == 1) {
+  auto count_derived = count(alleles, '1');
+  if(count_derived == 1) {
     if(alleles[ind1] == alleles[ind2])
-      return "singletonOutside";
+      return "out_1";
     else
-      return "singletonInside";
+      return "in_1";
   }
-  if(alleles[ind1] == alleles[ind2])
-    return "multiton";
-  return "doubleMut";
+  if(count_derived > 1 && alleles[ind1] == alleles[ind2]) {
+    if(alleles[ind1] == '1')
+      return format("in_%s", count_derived);
+    else
+      return format("out_%s", count_derived);
+  }
+  return "weird";
 }

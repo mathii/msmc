@@ -9,8 +9,11 @@ build/test : model/*.d test.d
 build/decode : model/*.d decode.d branchlength.d
 	dmd ${GSL} -odbuild -ofbuild/decode $^
 
-build/decodeStates : model/*.d decodeStates.d branchlength.d
+build/decodeStates : model/*.d decodeStates.d
 	dmd ${GSL} -odbuild -ofbuild/decodeStates $^
+
+build/emissionHistogram : model/*.d emissionHistogram.d
+	dmd ${GSL} -odbuild -ofbuild/emissionHistogram $^
 
 .PHONY : unittest testcoverage clean
 

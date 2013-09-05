@@ -112,12 +112,12 @@ class TimeIntervals {
   }
   
   size_t findIntervalForTime(double t) const
-    in {
-      assert(t >= 0.0);
-    }
-    out(result) {
-      assert(result < nrIntervals());
-    }
+  in {
+    assert(t >= 0.0);
+  }
+  out(result) {
+    assert(result < nrIntervals());
+  }
   body {
     auto index = countUntil!"a>b"(boundaries[1 .. $], t);
     if(index < 0)
@@ -126,9 +126,12 @@ class TimeIntervals {
   }
   
   size_t roundToFullInterval(double t) const
-    in {
-      assert(t >= 0.0);
-    }
+  in {
+    assert(t >= 0.0);
+  }
+  out(res) {
+    assert(res < nrIntervals);
+  }
   body {
     auto index = findIntervalForTime(t);
     if(t  - boundaries[index] < boundaries[index + 1] - t)
@@ -142,9 +145,9 @@ class TimeIntervals {
   }
   
   double meanTimeWithLambda(size_t i, double lambda) const
-    out(result) {
-      assert(result > leftBoundary(i) && result < rightBoundary(i));
-    }
+  out(result) {
+    assert(result > leftBoundary(i) && result < rightBoundary(i));
+  }
   body {
     double time;
     if(lambda < 0.001) {
