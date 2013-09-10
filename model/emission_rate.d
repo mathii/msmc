@@ -34,18 +34,20 @@ class EmissionRate {
   double[][] upperTreeEmissions;
   const TripleIndex tripleIndex;
   const TimeIntervals timeIntervals;
+  const TimeIntervals tTotIntervals;
   const PiecewiseConstantCoalescenceRate coal;
   double mu;
   size_t nrHaplotypes;
   size_t T;
   bool directedEmissions;
   
-  this(in TripleIndex tripleIndex, in TimeIntervals timeIntervals, in PiecewiseConstantCoalescenceRate coal, double mu, 
-       bool directedEmissions=false)
+  this(in TripleIndex tripleIndex, in TimeIntervals timeIntervals, in TimeIntervals tTotIntervals,
+       in PiecewiseConstantCoalescenceRate coal, double mu, bool directedEmissions=false)
   {
     this.tripleIndex = tripleIndex;
     this.mu = mu;
     this.timeIntervals = timeIntervals;
+    this.tTotIntervals = tTotIntervals;
     this.coal = coal;
     this.directedEmissions = directedEmissions;
     nrHaplotypes = tripleIndex.nrIndividuals;
@@ -104,7 +106,7 @@ class EmissionRate {
     return firstTerm + secondTerm;
   }
   
-  double emissionProb(string alleles, size_t aij) const {
+  double emissionProb(string alleles, size_t aij, size_t i_tTot) const {
     auto triple = tripleIndex.getTripleFromIndex(aij);
     if(nrHaplotypes == 2) {
       auto t = timeIntervals.meanTimeWithLambda(triple.time, coal.getTotalMarginalLambda(triple.time));
@@ -115,7 +117,7 @@ class EmissionRate {
     }
     
     auto emissionId = getEmissionId(alleles, triple.ind1, triple.ind2);
-    return emissionProb(emissionId, triple.time);
+    return emissionProb(emissionId, triple.time, i_tTot);
   }
   
   int getEmissionId(string alleles, size_t ind1, size_t ind2) const
@@ -175,22 +177,45 @@ class EmissionRate {
     }
   }
   
-  double emissionProb(int emissionId, size_t timeIndex) const
+  double emissionProb(int emissionId, size_t timeIndex, size_t i_tTot) const
   in {
     assert(emissionId == -1 || (emissionId >= 0 && emissionId < getNrEmissionIds()), text(emissionId));
     assert(timeIndex < T);
   }
   body {
     if(directedEmissions)
-      return directedEmissionProb(emissionId, timeIndex);
+      return directedEmissionProb(emissionId, timeIndex, i_tTot);
     else
-      return symmetricEmissionProb(emissionId, timeIndex);
+      return symmetricEmissionProb(emissionId, timeIndex, i_tTot);
   }
   
-  double symmetricEmissionProb(int emissionId, size_t timeIndex) const
+  // double symmetricEmissionProb(int emissionId, size_t timeIndex, size_t i_tTot) const
+  // {
+  //   auto t = timeIntervals.meanTimeWithLambda(timeIndex, coal.getTotalMarginalLambda(timeIndex));
+  //   auto tTot = nrHaplotypes * t + upperTreeEmissions[timeIndex][0];
+  //   if(emissionId < 0)
+  //     return 0.0;
+  //   if(emissionId == 0) {
+  //     return exp(-mu * tTot);
+  //   }
+  //   if(emissionId == 1)
+  //     return (1.0 - exp(-mu * tTot)) * t / tTot;
+  //   else {
+  //     auto term = (1.0 - exp(-mu * tTot)) * upperTreeEmissions[timeIndex][emissionId - 1] / tTot;
+  //     term += (1.0 - exp(-mu * tTot)) * upperTreeEmissions[timeIndex][nrHaplotypes - emissionId] / tTot;
+  //     if(emissionId == nrHaplotypes - 1)
+  //       term += (1.0 - exp(-mu * tTot)) * t / tTot;
+  //     return term;
+  //   }
+  // }
+
+  double symmetricEmissionProb(int emissionId, size_t timeIndex, size_t i_tTot) const
   {
-    auto t = timeIntervals.meanTimeWithLambda(timeIndex, coal.getTotalMarginalLambda(timeIndex));
-    auto tTot = nrHaplotypes * t + upperTreeEmissions[timeIndex][0];
+    auto t = timeIntervals.meanTimeWithLambda(timeIndex, nrHaplotypes);
+    auto tLeaf = tTotIntervals.meanTime(i_tTot, 2);
+    if(tLeaf < t * nrHaplotypes)
+      tLeaf = t * nrHaplotypes;
+    auto tTot = tLeaf + 2.0 * iota(2, nrHaplotypes).map!"1.0 / a"().reduce!"a+b"();
     if(emissionId < 0)
       return 0.0;
     if(emissionId == 0) {
@@ -198,16 +223,23 @@ class EmissionRate {
     }
     if(emissionId == 1)
       return (1.0 - exp(-mu * tTot)) * t / tTot;
+    if(emissionId == nrHaplotypes - 1) {
+      auto val = (1.0 - exp(-mu * tTot)) * (tLeaf - 2.0 * t) / (nrHaplotypes - 2.0) / tTot;
+      // val += (1.0 - exp(-mu * tTot)) * 2.0 / (nrHaplotypes - 2.0) / (nrHaplotypes - 1.0) / tTot;
+      return val;
+    }
     else {
-      auto term = (1.0 - exp(-mu * tTot)) * upperTreeEmissions[timeIndex][emissionId - 1] / tTot;
-      term += (1.0 - exp(-mu * tTot)) * upperTreeEmissions[timeIndex][nrHaplotypes - emissionId] / tTot;
-      if(emissionId == nrHaplotypes - 1)
-        term += (1.0 - exp(-mu * tTot)) * t / tTot;
-      return term;
+      auto val = 2.0 / (nrHaplotypes - 1.0); // doubleton in pair
+      auto cnt = 1.0;
+      foreach(k; 2 .. nrHaplotypes - 1) {
+        val += 2.0 / k;
+        cnt += binomial(nrHaplotypes - 1, k);
+      }
+      return (1.0 - exp(-mu * tTot)) * val / tTot / cnt;
     }
   }
   
-  double directedEmissionProb(int emissionId, size_t timeIndex) const {
+  double directedEmissionProb(int emissionId, size_t timeIndex, size_t i_tTot) const {
     auto t = timeIntervals.meanTimeWithLambda(timeIndex, coal.getTotalMarginalLambda(timeIndex));
     auto tTot = nrHaplotypes * t + upperTreeEmissions[timeIndex][0];
     if(emissionId < 0 )

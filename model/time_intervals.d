@@ -70,12 +70,17 @@ class TimeIntervals {
     return new TimeIntervals(boundaries);
   }
   
-  static TimeIntervals standardTotalLeaflengthIntervals(size_t nrTimeSegments, size_t nrHaplotypes) {
-    auto expectedTleaf = 2.0;
-    auto boundaries = getBoundaries(&computeQuantileBoundary, nrTimeSegments, expectedTleaf);
-    return new TimeIntervals(boundaries);
+  static TimeIntervals standardTotalLeaflengthIntervals(size_t nrTimeSegments) {
+    // auto mOver2 = nrHaplotypes * (nrHaplotypes - 1) / 2;
+    // auto low_boundaries = getBoundaries(&computeQuantileBoundary, nrTimeSegments, 1.0 / mOver2);
+    auto high_boundaries = getBoundaries(&computeQuantileBoundary, nrTimeSegments, 2.0);
+    return new TimeIntervals(high_boundaries);
+    // foreach(i, h; high_boundaries) {
+    //   if(h > low_boundaries[$ - 2])
+    //     return new TimeIntervals(low_boundaries[0 .. $ - 1] ~ high_boundaries[i .. $]);
+    // }
+    // assert(false);
   }
-  
   
   static double computeWattersonFactor(size_t nrHaplotypes) {
     auto wattersonFactor = 0.0;

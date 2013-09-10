@@ -43,19 +43,19 @@ import model.rate_integrator;
 import model.propagation_core_fastImpl;
 import model.data;
 
-void estimateTotalBranchlengths(SegSite_t[] inputData, MSMCmodel params, size_t internalNrSegments) {
+void estimateTotalBranchlengths(SegSite_t[] inputData, MSMCmodel params) {
 
-  auto propagationCore = buildPropagationCore(params, internalNrSegments);
-  auto msmc_hmm = buildHMM(inputData, propagationCore);
+  auto propagationCore = buildPropagationCore(params);
+  auto msmc_hmm = buildHMM(inputData, params.nrHaplotypes, propagationCore);
     
   msmc_hmm.runForward();
   
   auto forwardState = propagationCore.newForwardState();
   auto backwardState = propagationCore.newBackwardState();
 
-  foreach_reverse(dataIndex; 0 .. inputData.length) {
-    msmc_hmm.getForwardState(forwardState, inputData[dataIndex].pos);
-    msmc_hmm.getBackwardState(backwardState, inputData[dataIndex].pos);
+  foreach_reverse(ref data; inputData) {
+    msmc_hmm.getForwardState(forwardState, data.pos);
+    msmc_hmm.getBackwardState(backwardState, data.pos);
     double ttot = 2.0 * propagationCore.msmc.timeIntervals.meanTimeWithLambda(0, 1.0);
     auto max = forwardState.vec[0] * backwardState.vec[0];
     foreach(i; 0 .. propagationCore.msmc.nrTimeIntervals) {
@@ -63,15 +63,15 @@ void estimateTotalBranchlengths(SegSite_t[] inputData, MSMCmodel params, size_t 
       if(p > max) {
         max = p;
         // we need the total branch length, so twice the tMRCA with two haplotypes
-        ttot = 2.0 * propagationCore.msmc.timeIntervals.meanTimeWithLambda(i, 1.0);
+        ttot = 2.0 * propagationCore.msmc.timeIntervals.meanTimeWithLambda(i, 2.0);
       }
     }
-    inputData[dataIndex].i_Ttot = params.tTotIntervals.findIntervalForTime(ttot);
+    data.i_Ttot = params.tTotIntervals.findIntervalForTime(ttot);
   }
 }
 
-void readTotalBranchlengths(SegSite_t[] inputData, MSMCmodel params, size_t internalNrSegments, string treeFileName) {
-  auto simTreeParser = new SimTreeParser(treeFileName, internalNrSegments);
+void readTotalBranchlengths(SegSite_t[] inputData, MSMCmodel params, string treeFileName) {
+  auto simTreeParser = new SimTreeParser(treeFileName, params.nrTtotIntervals);
   foreach(ref segsite; inputData) {
     auto t = simTreeParser.getTtot(segsite.pos);
     segsite.i_Ttot = params.tTotIntervals.findIntervalForTime(t);
@@ -127,37 +127,36 @@ unittest {
   assert(approxEqual(getTotLeafLength(tree), 2.0 * 18.13, 0.0001, 0.0));
 }
 
+private PropagationCoreFast buildPropagationCore(MSMCmodel params) {
+  auto lambdaVec = new double[params.nrTtotIntervals];
+  lambdaVec[] = 1.0;
+  // the factor 2 is just part of the formula for the mean total branch length.
+  // auto expectedTtot = 2.0 * TimeIntervals.computeWattersonFactor(params.nrHaplotypes);
+  auto expectedTtot = 2.0;
+  // the next factor 2 fakes a two haplotype system with the same total branch length (every branch gets half)
+  auto boundaries = TimeIntervals.getQuantileBoundaries(params.nrTtotIntervals, expectedTtot / 2.0);
+  auto model = new MSMCmodel(params.mutationRate, params.recombinationRate, [0UL, 0], lambdaVec, boundaries[0 .. $ - 1], 1, false);
 
-
-
+  auto propagationCore = new PropagationCoreFast(model, 1000);
+  return propagationCore;
+}
   
-// private PropagationCoreFast buildPropagationCore(MSMCmodel params, size_t internalNrSegments) {
-//   auto lambdaVec = new double[internalNrSegments];
-//   lambdaVec[] = 1.0;
-//   // the factor 2 is just part of the formula for the mean total branch length.
-//   // auto expectedTtot = 2.0 * TimeIntervals.computeWattersonFactor(params.nrHaplotypes);
-//   auto expectedTtot = 2.0 / (params.nrHaplotypes - 1.0);
-//   // the next factor 2 fakes a two haplotype system with the same total branch length (every branch gets half)
-//   auto boundaries = TimeIntervals.getQuantileBoundaries(internalNrSegments, expectedTtot / 2.0);
-//   auto model = new MSMCmodel(params.mutationRate, params.recombinationRate, [0UL, 0], lambdaVec, boundaries[0 .. $ - 1], 1);
-// 
-//   auto propagationCore = new PropagationCoreFast(model, 1000);
-//   return propagationCore;
-// }
-//   
-// private MSMC_hmm buildHMM(SegSite_t[] inputData, PropagationCoreFast propagationCore) {
-//   SegSite_t[] dummyInputData;
-//   auto allele_order = canonicalAlleleOrder(propagationCore.msmc.nrHaplotypes);
-//   foreach(s; inputData) {
-//     auto alleles = allele_order[s.obs[0] - 1];
-//     auto counts_0 = count(alleles, '0');
-//     if(counts_0 == 1 || alleles.length - counts_0 == 1) {
-//       auto dummySite = s.dup;
-//       dummySite.obs = [2];
-//       dummyInputData ~= dummySite;
-//     }
-//   }
-//     
-//   return new MSMC_hmm(propagationCore, dummyInputData);
-// }
-// 
+private MSMC_hmm buildHMM(SegSite_t[] inputData, size_t nrHaplotypes, PropagationCoreFast propagationCore) {
+  SegSite_t[] dummyInputData;
+  auto allele_order = canonicalAlleleOrder(nrHaplotypes);
+  foreach(s; inputData) {
+    auto dummySite = s.dup;
+    if(s.obs.any!"a>1"()) {
+      auto alleles = allele_order[s.obs[0] - 1];
+      auto counts_0 = count(alleles, '0');
+      auto counts_1 = alleles.length - counts_0;
+      if(counts_0 == 1 || counts_1 == 1)
+        dummySite.obs = [2];
+      else
+        dummySite.obs = [1];
+    }
+    dummyInputData ~= dummySite;
+  }
+  return new MSMC_hmm(propagationCore, dummyInputData);
+}
+

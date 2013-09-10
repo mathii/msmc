@@ -35,7 +35,7 @@ import model.msmc_model;
 import expectation_step;
 import maximization_step;
 import logger;
-// import branchlength;
+import branchlength;
 
 auto maxIterations = 20UL;
 double mutationRate;
@@ -43,8 +43,7 @@ double recombinationRate;
 size_t[] subpopLabels;
 auto timeSegmentPattern = [1UL, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2];
 uint nrThreads;
-auto nrTtotSegments = 1UL;
-auto nrTtotInternal = 40UL;
+auto nrTtotSegments = 10UL;
 auto verbose = false;
 string outFilePrefix;
 auto memory = false;
@@ -72,7 +71,6 @@ auto helpString = "Usage: msmc [options] <datafiles>
     -t, --nrThreads=<size_t> : nr of threads to use (defaults to nr of CPUs)
     -p, --timeSegmentPattern=<string> : pattern of fixed time segments [default=10*1+15*2]
     -T, --nrTtotSegments=<size_t> : number of discrete values of the total branchlength Ttot [default=10]
-    -O, --nrTtotInternal=<size_t> : number of states used for the Ttot-HMM [default=40]
     -P, --subpopLabels=<string> comma-separated subpopulation labels (assume one single population by default, with 
           number of haplotypes inferred from first input file). For cross-population analysis with 4 haplotypes, 2 
           coming from each subpopulation, set this to 0,0,1,1
@@ -142,7 +140,6 @@ void parseCommandLine(string[] args) {
       "timeSegmentPattern|p", &handleTimeSegmentPatternString,
       "nrThreads|t", &nrThreads,
       "nrTtotSegments|T", &nrTtotSegments,
-      "nrTtotInternal|O", &nrTtotInternal,
       "verbose|v", &verbose,
       "outFilePrefix|o", &outFilePrefix,
       "help|h", &displayHelpMessageAndExit,
@@ -189,7 +186,6 @@ void printGlobalParams() {
   logInfo(format("timeSegmentPattern:  %s\n", timeSegmentPattern));
   logInfo(format("nrThreads:           %s\n", nrThreads == 0 ? totalCPUs : nrThreads));
   logInfo(format("nrTtotSegments:      %s\n", nrTtotSegments));
-  logInfo(format("nrTtotInternal:      %s\n", nrTtotInternal));
   logInfo(format("verbose:             %s\n", verbose));
   logInfo(format("outFilePrefix:       %s\n", outFilePrefix));
   logInfo(format("naiveImplementation: %s\n", naiveImplementation));
@@ -215,6 +211,14 @@ void run() {
   auto params = new MSMCmodel(mutationRate, recombinationRate, subpopLabels, lambdaVec, nrTimeSegments, nrTtotSegments, directedEmissions);
   
   auto inputData = readDataFromFiles(inputFileNames);
+  foreach(i, data; inputData) {
+    logInfo(format("\r[%s/%s] Estimating Leaf lengths", i + 1, inputData.length));
+    if(treeFileNames.length > 0)
+      readTotalBranchlengths(data, params, treeFileNames[i]);
+    else
+      estimateTotalBranchlengths(data, params);
+  }
+  logInfo("\n");
   
   auto f = File(loopFileName, "w");
   f.close();

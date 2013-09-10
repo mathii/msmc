@@ -235,13 +235,13 @@ class MinFunc {
         params.transitionRate.transitionProbabilityQ1(au) + params.transitionRate.transitionProbabilityQ2(au, au)
       );
     }
-    if(params.nrHaplotypes > 2) {
-      foreach(i; 0 .. params.nrTimeIntervals) {
-        foreach(int emissionId; 0 .. cast(int)params.emissionRate.getNrEmissionIds()) {
-          ret += emissionResultMat[i][emissionId] * log(params.emissionRate.emissionProb(emissionId, i));
-        }
-      }
-    }
+    // if(params.nrHaplotypes > 2) {
+    //   foreach(i; 0 .. params.nrTimeIntervals) {
+    //     foreach(int emissionId; 0 .. cast(int)params.emissionRate.getNrEmissionIds()) {
+    //       ret += emissionResultMat[i][emissionId] * log(params.emissionRate.emissionProb(emissionId, i));
+    //     }
+    //   }
+    // }
     return ret;
   }
 

@@ -43,11 +43,13 @@ class MSMCmodel {
   this(double mutationRate, double recombinationRate, in size_t[] subpopLabels, in double[] lambdaVec, in double[] timeBoundaries, size_t nrTtotIntervals, bool directedEmissions) {
     auto nrHaplotypes = cast(size_t)subpopLabels.length;
     timeIntervals = new TimeIntervals(timeBoundaries ~ [double.infinity]);
-    tTotIntervals = TimeIntervals.standardTotalBranchlengthIntervals(nrTtotIntervals, nrHaplotypes);
+    // tTotIntervals = TimeIntervals.standardTotalBranchlengthIntervals(nrTtotIntervals, nrHaplotypes);
+    tTotIntervals = TimeIntervals.standardTotalLeaflengthIntervals(nrTtotIntervals);
     marginalIndex = new MarginalTripleIndex(nrTimeIntervals, subpopLabels);
     coal = new PiecewiseConstantCoalescenceRate(marginalIndex, lambdaVec);
     transitionRate = new TransitionRate(marginalIndex, coal, timeIntervals, recombinationRate);
-    emissionRate = new EmissionRate(marginalIndex, timeIntervals, coal, mutationRate, directedEmissions); 
+    emissionRate = new EmissionRate(marginalIndex, timeIntervals, tTotIntervals, coal, mutationRate, 
+                                    directedEmissions); 
 
     auto dummy = new char[nrHaplotypes];
     dummy[] = '0';
@@ -87,6 +89,10 @@ class MSMCmodel {
   
   @property double recombinationRate() const {
     return transitionRate.rho;
+  }
+
+  @property double mutationRate() const {
+    return emissionRate.mu;
   }
   
   @property double[] lambdaVec() const {
