@@ -69,7 +69,7 @@ class PropagationCoreFast : PropagationCore {
           if(i == 0)
             emissionProbs[tt][i][aij] = 1.0; // missing data
           else
-            emissionProbs[tt][i][aij] = msmc.emissionProb(allele_order[i - 1], aij, tt);
+            emissionProbs[tt][i][aij] = msmc.emissionRate.emissionProb(allele_order[i - 1], aij);
         }
       }
     }
@@ -78,8 +78,7 @@ class PropagationCoreFast : PropagationCore {
     foreach(tt; 0 .. msmc.nrTtotIntervals) {
       foreach(au; 0 .. msmc.nrMarginals) {
         auto index = msmc.marginalIndex.getIndexFromMarginalIndex(au);
-        auto time = msmc.marginalIndex.getTripleFromIndex(index).time;
-        emissionProbsMarginal[tt][au] = msmc.emissionProbHom(time, tt);
+        emissionProbsMarginal[tt][au] = msmc.emissionRate.emissionProb(msmc.homAlleles, index);
       }
     }
     
@@ -191,8 +190,7 @@ class PropagationCoreFast : PropagationCore {
     
     foreach(au; 0 .. msmc.nrMarginals) {
       auto index = msmc.marginalIndex.getIndexFromMarginalIndex(au);
-      auto triple = msmc.marginalIndex.getTripleFromIndex(index);
-      e[au] = missing_data ? 1.0 : msmc.emissionProbHom(triple.time, i);
+      e[au] = missing_data ? 1.0 : msmc.emissionRate.emissionProb(msmc.homAlleles, index);
     }
     
     foreach(au; 0 .. msmc.nrMarginals) {
@@ -424,7 +422,7 @@ unittest {
   import model.propagation_core_naiveImpl;
   auto lambdaVec = new double[30];
   lambdaVec[] = 1.0;
-  auto msmc = new MSMCmodel(0.01, 0.001, [0U, 0, 1, 1], lambdaVec, 10, 4);
+  auto msmc = new MSMCmodel(0.01, 0.001, [0U, 0, 1, 1], lambdaVec, 10, 4, false);
   auto lvl = 1.0e-8;
   
   auto maxDist = 10U;
@@ -465,7 +463,7 @@ unittest {
   import model.propagation_core_naiveImpl;
   auto lambdaVec = new double[30];
   lambdaVec[] = 1.0;
-  auto msmc = new MSMCmodel(0.01, 0.001, [0U, 0, 1, 1], lambdaVec, 10, 4);
+  auto msmc = new MSMCmodel(0.01, 0.001, [0U, 0, 1, 1], lambdaVec, 10, 4, false);
   auto lvl = 1.0e-8;
   auto propagationCoreNaive = new PropagationCoreNaive(msmc, 10);
   auto propagationCoreFast = new PropagationCoreFast(msmc, 10);
@@ -512,7 +510,7 @@ unittest {
   import model.propagation_core_naiveImpl;
   auto lambdaVec = new double[30];
   lambdaVec[] = 1.0;
-  auto msmc = new MSMCmodel(0.01, 0.001, [0U, 0, 1, 1], lambdaVec, 10, 4);
+  auto msmc = new MSMCmodel(0.01, 0.001, [0U, 0, 1, 1], lambdaVec, 10, 4, false);
   auto lvl = 1.0e-8;
   auto propagationCoreNaive = new PropagationCoreNaive(msmc, 10);
   auto propagationCoreFast = new PropagationCoreFast(msmc, 10);

@@ -61,7 +61,6 @@ interface PropagationCore {
   State_t newBackwardState(StateVecAllocator stateAllocator) const;
   void initialState(State_t s) const;
   void getTransitionExpectation(State_t f, State_t b, in SegSite_t to_segsite, double[] eVec, double[][] eMat) const;
-  void getEmissionExpectation(State_t f, State_t b, in SegSite_t segsite, double[][size_t]) const;
   void setState(State_t s, double x, in SegSite_t segsite) const;
   
   @property size_t maxDistance() const;

@@ -56,6 +56,7 @@ string[] treeFileNames;
 size_t hmmStrideWidth = 1000;
 double[] lambdaVec;
 size_t nrTimeSegments;
+bool directedEmissions;
 string logFileName, loopFileName, finalFileName;
 
 
@@ -77,6 +78,7 @@ auto helpString = "Usage: msmc [options] <datafiles>
           coming from each subpopulation, set this to 0,0,1,1
     -R, --fixedRecombination : keep recombination rate fixed [recommended, but not set by default]
     -v, --verbose: write out the expected number of transition matrices (into a separate file)
+    -d, --directedEmissions: use information from ancestral allele, use \"0\" for ancestral, \"1\" for derived allele
     --naiveImplementation: use naive HMM implementation [for debugging only]
     --fixedPopSize: learn only the cross-population coalescence rates, keep the population sizes fixed [not recommended]
     --hmmStrideWidth <int> : stride width to traverse the data in the expectation step [default=1000]
@@ -149,7 +151,8 @@ void parseCommandLine(string[] args) {
       "fixedPopSize", &fixedPopSize,
       "fixedRecombination|R", &fixedRecombination,
       "initialLambdaVec", &handleLambdaVecString,
-      "treeFiles", &handleTreeFileNames
+      "treeFiles", &handleTreeFileNames,
+      "directedEmissions|d", &directedEmissions
   );
   if(nrThreads)
     std.parallelism.defaultPoolThreads(nrThreads);
@@ -197,6 +200,7 @@ void printGlobalParams() {
   logInfo(format("logging information written to %s\n", logFileName));
   logInfo(format("loop information written to %s\n", loopFileName));
   logInfo(format("final results written to %s\n", finalFileName));
+  logInfo(format("directed Emissions:  %s\n", directedEmissions));
   if(verbose)
     logInfo(format("transition matrices written to %s.loop_*.expectationMatrix.txt\n", outFilePrefix));
 }
@@ -208,24 +212,9 @@ void inferDefaultSubpopLabels() {
 }
 
 void run() {
-  auto params = new MSMCmodel(mutationRate, recombinationRate, subpopLabels, lambdaVec, nrTimeSegments, nrTtotSegments);
+  auto params = new MSMCmodel(mutationRate, recombinationRate, subpopLabels, lambdaVec, nrTimeSegments, nrTtotSegments, directedEmissions);
   
   auto inputData = readDataFromFiles(inputFileNames);
-  
-  // if(subpopLabels.length > 2) {
-  //   auto cnt = 0;
-  //   foreach(i, data; taskPool.parallel(inputData)) {
-  //     if(treeFileNames.length == 0) {
-  //       logInfo(format("\r[%s/%s] estimating total branchlengths", ++cnt, inputData.length));
-  //       estimateTotalBranchlengths(data, params, nrTtotInternal);
-  //     }
-  //     else {
-  //       logInfo(format("\r[%s/%s] reading total branchlengths", ++cnt, inputData.length));
-  //       readTotalBranchlengths(data, params, nrTtotInternal, treeFileName[i]);
-  //     }
-  //   }
-  //   logInfo("\n");
-  // }
   
   auto f = File(loopFileName, "w");
   f.close();
@@ -235,13 +224,14 @@ void run() {
     auto expectationResult = getExpectation(inputData, params, hmmStrideWidth, 1000, naiveImplementation);
     auto eVec = expectationResult[0];
     auto eMat = expectationResult[1];
-    auto logLikelihood = expectationResult[2];
+    auto emissionMat = expectationResult[2];
+    auto logLikelihood = expectationResult[3];
     printLoop(loopFileName, params, logLikelihood);
     if(verbose) {
       auto filename = outFilePrefix ~ format(".loop_%s.expectationMatrix.txt", iteration);
       printMatrix(filename, eVec, eMat);
     }
-    auto newParams = getMaximization(eVec, eMat, params, timeSegmentPattern, fixedPopSize, fixedRecombination);
+    auto newParams = getMaximization(eVec, eMat, emissionMat, params, timeSegmentPattern, fixedPopSize, fixedRecombination);
     params = newParams;
   }
   
@@ -251,7 +241,7 @@ void run() {
 SegSite_t[][] readDataFromFiles(string[] filenames) {
   SegSite_t[][] ret;
   foreach(filename; filenames) {
-    auto data = readSegSites(filename);
+    auto data = readSegSites(filename, directedEmissions);
     logInfo(format("read %s SNPs from file %s\n", data.length, filename));
     ret ~= data;
   }

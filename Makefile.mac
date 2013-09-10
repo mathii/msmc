@@ -15,6 +15,9 @@ build/decodeStates : model/*.d decodeStates.d
 build/emissionHistogram : model/*.d emissionHistogram.d
 	dmd ${GSL} -odbuild -ofbuild/emissionHistogram $^
 
+build/forwardSim : model/*.d forwardSim.d
+	dmd ${GSL} -odbuild -ofbuild/forwardSim $^
+
 .PHONY : unittest testcoverage clean
 
 testcoverage : model/*.d unittest.d powell.d brent.d maximization_step.d expectation_step.d amoeba.d logger.d

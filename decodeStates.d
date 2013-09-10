@@ -29,6 +29,7 @@ import std.regex;
 import std.conv;
 import std.range;
 import std.math;
+import std.functional;
 import model.msmc_hmm;
 import model.data;
 import model.time_intervals;
@@ -44,6 +45,7 @@ string inputFileName;
 size_t nrHaplotypes;
 string treeFileName;
 bool onlySim;
+double[] lambdaVec;
 
 void main(string[] args) {
   try {
@@ -64,14 +66,26 @@ void parseCommandlineArgs(string[] args) {
          "recombinationRate|r", &recombinationRate,
          "nrTimeSegments|t", &nrTimeSegments,
          "nrTtotSegments|T", &nrTtotSegments,
+         "lambdaVec|l", toDelegate(&handleLambdaVecString),
          "onlySim", &onlySim);
 
   enforce(args.length == 3, "need one site-file and one tree file");
   inputFileName = args[1];
   treeFileName = args[2];
+  if(lambdaVec.length == 0) {
+    lambdaVec = new double[nrTimeSegments];
+    lambdaVec[] = 1.0;
+  }
+  else {
+    enforce(lambdaVec.length == nrTimeSegments);
+  }
   nrHaplotypes = getNrHaplotypesFromFile(inputFileName);
   enforce(mutationRate > 0, "need positive mutationRate");
   enforce(recombinationRate > 0, "need positive recombinationRate");
+}
+
+void handleLambdaVecString(string option, string value) {
+  lambdaVec = value.split(",").map!"a.to!double()"().array();
 }
 
 void displayHelpMessage() {
@@ -81,15 +95,16 @@ Options:
 -r, --recombinationRate <double>
 -t, --nrTimeSegments <int>
 -T, --nrTtotSegments <int>
+-l, --lambdaVec <comma-separated str>
 --onlySim");
 }
 
 void run() {
   
   auto subpopLabels = new size_t[nrHaplotypes];
-  auto model = MSMCmodel.withTrivialLambda(mutationRate, recombinationRate, subpopLabels, nrTimeSegments, 4);
+  auto model = new MSMCmodel(mutationRate, recombinationRate, subpopLabels, lambdaVec, nrTimeSegments, 1, true);
   
-  auto segsites = readSegSites(inputFileName);
+  auto segsites = readSegSites(inputFileName, true);
   auto chr = File(inputFileName, "r").byLine().front().strip().split()[0].dup;
   
   MSMC_hmm hmm;
@@ -140,7 +155,7 @@ void run() {
     auto tTotSimState = model.tTotIntervals.findIntervalForTime(tTotSim);
     auto al = segsite.obs[0] > 0 ? allele_order[segsite.obs[0] - 1] : missingAlleleString;
     
-    auto eType = getEmissionType(al.idup, tSimPair[1], tSimPair[2]);
+    auto eType = model.emissionRate.getEmissionId(al.idup, tSimPair[1], tSimPair[2]);
 
     outputLines ~= format("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s", chr, segsite.pos, al, 
                           eType, t, tState, tTot, segsite.i_Ttot, tSim, tSimState, tTotSim, tTotSimState);

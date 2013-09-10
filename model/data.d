@@ -81,25 +81,22 @@ unittest {
 
 // this function converts any allele string to a sequence of 0's and 1's
 
-string normalizeAlleleString(string alleles, char ancestral = '-') {
-  if(ancestral == '-') {
-    ancestral = alleles[0];
-  }
+string normalizeAlleleString(string alleles) {
   char[] ret;
   foreach(allele; alleles) {
-    ret ~= allele == ancestral ? '0' : '1';
+    ret ~= allele == alleles[0] ? '0' : '1';
   }
   return ret.idup;
 }
 
 unittest {
   writeln("test normalizeAlleleString");
-  assert(normalizeAlleleString("AACC", 'A') == "0011");
-  assert(normalizeAlleleString("1101", '1') == "0010");
-  assert(normalizeAlleleString("ACTG", 'A') == "0111");
-  assert(normalizeAlleleString("GGGG", 'G') == "0000");
-  assert(normalizeAlleleString("GG", 'G') == "00");
-  assert(normalizeAlleleString("TC", 'T') == "01");
+  assert(normalizeAlleleString("AACC") == "0011");
+  assert(normalizeAlleleString("1101") == "0010");
+  assert(normalizeAlleleString("ACTG") == "0111");
+  assert(normalizeAlleleString("GGGG") == "0000");
+  assert(normalizeAlleleString("GG") == "00");
+  assert(normalizeAlleleString("TC") == "01");
 }
 
 void checkDataLine(const char[] line) {
@@ -141,7 +138,7 @@ unittest {
   assert(getNrHaplotypesFromFile("/tmp/nrHaplotypesTest.txt") == 2);
 }
 
-SegSite_t[] readSegSites(string filename) {
+SegSite_t[] readSegSites(string filename, bool directedEmissions) {
   // format: chr, position, nr_calledSites, [alleles]
   // if no alleles are given, assume M=2 and "01"
   // alleles can be given as comma-separated list of alternative alleles
@@ -199,7 +196,7 @@ SegSite_t[] readSegSites(string filename) {
         size_t[] allele_indices;
         foreach(allele_string; split(fields[3], ",")) {
           enforce(allele_string.length == M);
-          auto normalized = normalizeAlleleString(allele_string.idup);
+          auto normalized = directedEmissions ? allele_string.idup : normalizeAlleleString(allele_string.idup);
           allele_indices ~= obsMap[normalized];
         }
         if(nrCalledSites < pos - lastPos) { // missing data
@@ -235,7 +232,7 @@ unittest {
   tmp_file.writeln("1 1000012 4 ACCG,TTGA");
   tmp_file.close();
 
-  auto segsites = readSegSites("/tmp/msmc_data_unittest.tmp");
+  auto segsites = readSegSites("/tmp/msmc_data_unittest.tmp", false);
   assert(segsites[0].pos == 1000000 && segsites[0].obs == [4]);
   assert(segsites[1].pos == 1000002 && segsites[1].obs == [0]);
   assert(segsites[3].pos == 1000005 && segsites[3].obs == [0]);
@@ -254,7 +251,7 @@ unittest {
   tmp_file.writeln("1 1000012 4 AA,TT");
   tmp_file.close();
 
-  auto segsites = readSegSites("/tmp/msmc_data_unittest.tmp");
+  auto segsites = readSegSites("/tmp/msmc_data_unittest.tmp", false);
   assert(segsites[0].pos == 1000000 && segsites[0].obs == [2]);
   assert(segsites[1].pos == 1000002 && segsites[1].obs == [0]);
   assert(segsites[3].pos == 1000005 && segsites[3].obs == [0]);

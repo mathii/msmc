@@ -24,87 +24,238 @@ import std.exception;
 import std.conv;
 import std.range;
 import std.algorithm;
+import std.mathspecial;
 import model.triple_index;
 import model.msmc_model;
+import model.time_intervals;
+import model.coalescence_rate;
 
-double emissionProb(string alleles, in MSMCmodel model, double t, size_t ind1, size_t ind2, double tTot) {
-  if(alleles.length == 2) {
-    auto mu = model.mutationRate;
-    if(alleles[0] == alleles[1])
-      return exp(-2.0 * mu * t);
-    else
-      return (1.0 - exp(-2.0 * mu * t));
-  }
+class EmissionRate {
+  double[][] upperTreeEmissions;
+  const TripleIndex tripleIndex;
+  const TimeIntervals timeIntervals;
+  const PiecewiseConstantCoalescenceRate coal;
+  double mu;
+  size_t nrHaplotypes;
+  size_t T;
+  bool directedEmissions;
   
-  auto p_0 = emissionProb(alleles, '0', model, t, ind1, ind2);
-  auto p_1 = emissionProb(alleles, '1', model, t, ind1, ind2);
-  return p_0 + p_1;
-}
-
-double emissionProb(string alleles, char ancestralAllele, in MSMCmodel model, double t, size_t ind1, size_t ind2)
-in {
-  assert(t > 0.0);
-  assert(t < double.infinity);
-}
-out(res) {
-  assert(res >= 0.0);
-}
-body {
-  auto M = alleles.length;
-  auto mu = model.mutationRate;
-  auto count_ancestral = count(alleles, ancestralAllele);
-  auto count_derived = M - count_ancestral;
-  
-  auto tTotUpper = 0.0;
-  foreach(k; 1 .. M - 1) {
-    tTotUpper += binomial(M - 1, k) * mutationTreeLength(model, t, M - 1, k);
-    // stderr.writefln("%s %s %s", k, mutationTreeLength(model, t, M - 1, k), mutationTreeLength(M - 1, k));
-  }
-  
-  auto tTot = M * t + tTotUpper;
-
-  if(count_derived == 0) {
-    return exp(-mu * tTot);
-  }
-  if(count_ancestral == 0) {
-    return 0.0;
-  }
-  if(count_derived == 1) {
-    if(alleles[ind1] != alleles[ind2])
-      return (1.0 - exp(-mu * tTot)) * t / tTot;
-    else
-      return (1.0 - exp(-mu * tTot)) * (t + mutationTreeLength(M - 1, 1)) / tTot;
-  }
-  else {
-    if(alleles[ind1] != ancestralAllele && alleles[ind2] != ancestralAllele) {
-      // return (1.0 - exp(-mu * tTot)) * mutationTreeLength(model, t, M - 1, count_derived - 1) / tTot;
-      auto length = mutationTreeLength(M - 1, 1); // this is the doubleton above the pair of first coalescence
-      auto norm = 1.0;
-      
-      foreach(k; 2 .. M - 1) {
-        length += mutationTreeLength( M - 1, k) * binomial(M - 2, k - 1);
-        norm += binomial(M - 2, k - 1);
-      }
-      length /= norm;
-          
-      return (1.0 - exp(-mu * tTot)) * length / tTot;
+  this(in TripleIndex tripleIndex, in TimeIntervals timeIntervals, in PiecewiseConstantCoalescenceRate coal, double mu, 
+       bool directedEmissions=false)
+  {
+    this.tripleIndex = tripleIndex;
+    this.mu = mu;
+    this.timeIntervals = timeIntervals;
+    this.coal = coal;
+    this.directedEmissions = directedEmissions;
+    nrHaplotypes = tripleIndex.nrIndividuals;
+    T = timeIntervals.nrIntervals;
+    if(nrHaplotypes > 2) {
+      computeUpperTreeLengths();
     }
-    else if(alleles[ind1] == ancestralAllele && alleles[ind2] == ancestralAllele) {
-      // return (1.0 - exp(-mu * tTot)) * mutationTreeLength(model, t, M - 1, count_derived) / tTot;
-      auto length = 0.0;
-      auto norm = 0.0;
-      
-      foreach(k; 2 .. M - 1) {
-        length += mutationTreeLength(M - 1, k) * binomial(M - 2, k);
-        norm += binomial(M - 2, k);
+  }
+  
+  private void computeUpperTreeLengths() {
+    upperTreeEmissions = new double[][](T, nrHaplotypes - 1);
+    foreach(a; 0 .. T) {
+      upperTreeEmissions[a][] = 0.0;
+      auto t = timeIntervals.meanTimeWithLambda(a, coal.getTotalMarginalLambda(a));
+      foreach(k; 1 .. nrHaplotypes - 1) {
+        auto val = mutationTreeLength(t, nrHaplotypes - 1, k);
+        // auto val = mutationTreeLength(nrHaplotypes - 1, k);
+        upperTreeEmissions[a][k] = val;
+        upperTreeEmissions[a][0] += binomial(nrHaplotypes - 1, k) * val;
       }
-      length /= norm;
-          
-      return (1.0 - exp(-mu * tTot)) * length / tTot;
     }
+  }
+  
+  double mutationTreeLength(double start_time, size_t M, size_t k) const {
+    auto sum = 0.0;
+    foreach(j; 2 .. M - k + 1 + 1) {
+      sum += binomial(j, 2) * binomial(M - j, k - 1) * getExpectedCoalescenceTime(start_time, M, j);
+    }
+    auto result_wakeley_book_eq_4_22 = sum / (binomial(M - 1, k) * k);
+    return 2.0 * result_wakeley_book_eq_4_22 / binomial(M, k);
+  }
+
+  double getExpectedCoalescenceTime(double u, size_t m, size_t k) const {
+    auto beta = timeIntervals.findIntervalForTime(u);
+  
+    auto firstTerm = 0.0;
+    foreach(j; k .. m + 1) {
+      auto val = c(m, k, j);
+      val *= integralHelper(binomial(j, 2) * coal.getAvgLambda(beta), u, timeIntervals.rightBoundary(beta));
+      firstTerm += val;
+    }
+  
+    auto secondTerm = 0.0;
+    foreach(gamma; beta + 1 .. T) {
+      foreach(j; k .. m + 1) {
+        auto inner_sum = 0.0;
+        if(gamma - 1 >= beta + 1)
+          inner_sum = iota(beta + 1, gamma).map!(nu => coal.getAvgLambda(nu) * timeIntervals.delta(nu)).reduce!"a+b"();
+        auto val = exp(-binomial(j, 2) * (timeIntervals.rightBoundary(beta) - u) * coal.getAvgLambda(beta));
+        val *= exp(-binomial(j, 2) * inner_sum);
+        val *= c(m, k, j);
+        val *= integralHelper(binomial(j, 2) * coal.getAvgLambda(gamma), timeIntervals.leftBoundary(gamma), timeIntervals.rightBoundary(gamma));
+        secondTerm += val;
+      }
+    }
+    return firstTerm + secondTerm;
+  }
+  
+  double emissionProb(string alleles, size_t aij) const {
+    auto triple = tripleIndex.getTripleFromIndex(aij);
+    if(nrHaplotypes == 2) {
+      auto t = timeIntervals.meanTimeWithLambda(triple.time, coal.getTotalMarginalLambda(triple.time));
+      if(alleles[0] == alleles[1])
+        return exp(-2.0 * mu * t);
+      else
+        return (1.0 - exp(-2.0 * mu * t));
+    }
+    
+    auto emissionId = getEmissionId(alleles, triple.ind1, triple.ind2);
+    return emissionProb(emissionId, triple.time);
+  }
+  
+  int getEmissionId(string alleles, size_t ind1, size_t ind2) const
+  out(res) {
+    assert(res == -1 || (res >= 0 && res < getNrEmissionIds));
+  }
+  body {
+    if(directedEmissions)
+      return getDirectedEmissionId(alleles, ind1, ind2);
     else
+      return getSymmetricEmissionId(alleles, ind1, ind2);
+    
+  }
+  
+  private int getDirectedEmissionId(string alleles, size_t ind1, size_t ind2) const {
+    auto count_derived = count(alleles, '1');
+    auto count_ancestral = nrHaplotypes - count_derived;
+    if(count_derived == 0)
+      return 0;
+    if(count_ancestral == 0)
+      return -1;
+    if(count_derived == 1) {
+      if(alleles[ind1] != alleles[ind2])
+        return 1;
+      else {
+        return cast(int)nrHaplotypes;
+      }
+    }
+    else {
+      if(alleles[ind1] != alleles[ind2])
+        return -1;
+      else {
+        if(alleles[ind1] == '1')
+          return cast(int)count_derived;
+        else
+          return cast(int)nrHaplotypes + cast(int)count_derived - 1;
+      }
+    }
+  }
+  
+  private int getSymmetricEmissionId(string alleles, size_t ind1, size_t ind2) const {
+    auto count_0 = count(alleles, '0');
+    auto count_1 = nrHaplotypes - count_0;
+    if(count_0 == 0 || count_1 == 0)
+      return 0;
+    if(count_0 == 1 || count_1 == 1) {
+      if(alleles[ind1] != alleles[ind2])
+        return 1;
+      else
+        return cast(int)nrHaplotypes - 1;
+    }
+    else {
+      if(alleles[ind1] != alleles[ind2])
+        return -1;
+      else
+        return cast(int)count(alleles, alleles[ind1]);
+    }
+  }
+  
+  double emissionProb(int emissionId, size_t timeIndex) const
+  in {
+    assert(emissionId == -1 || (emissionId >= 0 && emissionId < getNrEmissionIds()), text(emissionId));
+    assert(timeIndex < T);
+  }
+  body {
+    if(directedEmissions)
+      return directedEmissionProb(emissionId, timeIndex);
+    else
+      return symmetricEmissionProb(emissionId, timeIndex);
+  }
+  
+  double symmetricEmissionProb(int emissionId, size_t timeIndex) const
+  {
+    auto t = timeIntervals.meanTimeWithLambda(timeIndex, coal.getTotalMarginalLambda(timeIndex));
+    auto tTot = nrHaplotypes * t + upperTreeEmissions[timeIndex][0];
+    if(emissionId < 0)
       return 0.0;
+    if(emissionId == 0) {
+      return exp(-mu * tTot);
+    }
+    if(emissionId == 1)
+      return (1.0 - exp(-mu * tTot)) * t / tTot;
+    else {
+      auto term = (1.0 - exp(-mu * tTot)) * upperTreeEmissions[timeIndex][emissionId - 1] / tTot;
+      term += (1.0 - exp(-mu * tTot)) * upperTreeEmissions[timeIndex][nrHaplotypes - emissionId] / tTot;
+      if(emissionId == nrHaplotypes - 1)
+        term += (1.0 - exp(-mu * tTot)) * t / tTot;
+      return term;
+    }
   }
+  
+  double directedEmissionProb(int emissionId, size_t timeIndex) const {
+    auto t = timeIntervals.meanTimeWithLambda(timeIndex, coal.getTotalMarginalLambda(timeIndex));
+    auto tTot = nrHaplotypes * t + upperTreeEmissions[timeIndex][0];
+    if(emissionId < 0 )
+      return 0.0;
+    if(emissionId == 0) {
+      return exp(-mu * tTot);
+    }
+    if(emissionId == 1)
+      return (1.0 - exp(-mu * tTot)) * t / tTot;
+    if(emissionId < nrHaplotypes)
+      return (1.0 - exp(-mu * tTot)) * upperTreeEmissions[timeIndex][emissionId - 1] / tTot;
+    else {
+      auto freq = emissionId - nrHaplotypes + 1;
+      if(freq == 1)
+        return (1.0 - exp(-mu * tTot)) * (t + upperTreeEmissions[timeIndex][1]) / tTot;
+      else
+        return (1.0 - exp(-mu * tTot)) * upperTreeEmissions[timeIndex][freq] / tTot;
+    }
+  }
+  
+  size_t getNrEmissionIds() const {
+    if(directedEmissions)
+      return 2 * nrHaplotypes - 2;
+    else 
+      return nrHaplotypes;
+  }
+  
+}
+
+unittest {
+  auto mu = 0.001;
+  auto e = MSMCmodel.withTrivialLambda(mu, mu, [0UL, 0, 0, 0, 0, 0], 10, 1, true);
+  foreach(k; 1 .. 4) {
+    assert(approxEqual(e.emissionRate.mutationTreeLength(1.24, 5, k), mutationTreeLength(5, k), 1e-8, 0.0));
+  }
+  assert(e.emissionRate.getEmissionId("001100", 1, 2) == -1);
+  assert(e.emissionRate.getEmissionId("001100", 2, 3) == 2);
+  assert(e.emissionRate.getEmissionId("001100", 0, 1) == 7);
+  assert(e.emissionRate.getEmissionId("111111", 0, 1) == -1);
+  assert(e.emissionRate.getEmissionId("111110", 0, 1) == 5);
+
+  e = MSMCmodel.withTrivialLambda(mu, mu, [0UL, 0, 0, 0, 0, 0], 10, 1, false);
+  assert(e.emissionRate.getEmissionId("001100", 1, 2) == -1);
+  assert(e.emissionRate.getEmissionId("001100", 2, 3) == 2);
+  assert(e.emissionRate.getEmissionId("001100", 0, 1) == 4);
+  assert(e.emissionRate.getEmissionId("111111", 0, 1) == 0);
+  assert(e.emissionRate.getEmissionId("111110", 0, 1) == 5);
+  
 }
 
 double mutationTreeLength(size_t m, size_t freq)
@@ -138,60 +289,25 @@ unittest {
   assert(binomial(4,4) == 1);
 }
 
-double mutationTreeLength(in MSMCmodel model, double start_time, size_t m, size_t k) {
-  auto coalescenceTimes = getExpectedCoalescenceTimeIntervals(model, start_time, m);
-  auto sum = 0.0;
-  foreach(j; 2 .. m - k + 1 + 1) {
-    sum += binomial(j, 2) * binomial(m - j, k - 1) * coalescenceTimes[m - j];
-  }
-  auto result_wakeley_book_eq_4_22 = sum / (binomial(m - 1, k) * k);
-  return 2.0 * result_wakeley_book_eq_4_22 / binomial(m, k);
+double integralHelper(double lambda, double lower, double upper) {
+  return (1.0 - exp(-lambda * (upper - lower))) / lambda;
+}
+
+double c(size_t n, size_t m, size_t j) {
+  auto first = (-1.0) ^^ (j - m);
+  auto second = (2.0 * j - 1.0) / cast(double)(fact(m) * fact(j - m));
+  auto third = gamma(m + j - 1) / gamma(m);
+  auto fourth = gamma(n) / gamma(n + j);
+  auto fifth = gamma(n + 1) / gamma(n - j + 1);
+  return first * second * third * fourth * fifth;
+}
+
+double fact(size_t k) {
+  return cast(double).reduce!"a*b"(1UL, iota(1, k + 1));
 }
 
 unittest {
-  auto mu = 0.001;
-  auto subpopLabels = new size_t[6];
-  auto model = MSMCmodel.withTrivialLambda(mu, mu, subpopLabels, 10, 1);
-  foreach(k; 1 .. 4) {
-    assert(approxEqual(mutationTreeLength(model, 1.24, 5, k), mutationTreeLength(5, k), 1e-8, 0.0));
-  }
-}
-
-double[] getExpectedCoalescenceTimeIntervals(in MSMCmodel model, double start_time, size_t M) {
-  double[] ret;
-  auto last_t = start_time;
-  foreach_reverse(m; 2 .. M + 1) {
-    auto t = getExpectedCoalescenceTime(last_t, model, m) - last_t;
-    ret ~= t;
-    last_t += t;
-  }
-  return ret;
-}
-
-double getExpectedCoalescenceTime(double u, in MSMCmodel model, size_t M) {
-  auto beta = model.timeIntervals.findIntervalForTime(u);
-  auto lambda_b = model.lambda(beta) * binomial(M, 2);
-  auto firstTerm = integralHelper(lambda_b, u, model.timeIntervals.rightBoundary(beta));
-  
-  auto sum = 0.0;
-  foreach(gamma; beta + 1 .. model.nrTimeIntervals) {
-    auto term = integralHelper(model.lambda(gamma) * binomial(M, 2),
-                               model.timeIntervals.leftBoundary(gamma), model.timeIntervals.rightBoundary(gamma));
-    auto inner_sum = 0.0;
-    if(gamma > beta + 1) {
-      foreach(nu; beta + 1 .. gamma)
-        inner_sum += model.lambda(nu) * binomial(M, 2) * model.timeIntervals.delta(nu);
-    }
-    term *= exp(-inner_sum);
-    sum += term;
-  }
-  sum *= exp(-(model.timeIntervals.rightBoundary(beta) - u) * lambda_b);
-  return firstTerm + sum;
-}
-
-double integralHelper(double lambda, double lower, double upper) {
-  if(upper == double.infinity) {
-    return 1.0 / lambda + lower;
-  }
-  return 1.0 / lambda + lower - (1.0 / lambda + upper) * exp(-(upper - lower) * lambda);
+  assert(fact(1) == 1);
+  assert(fact(2) == 2);
+  assert(fact(3) == 6);
 }

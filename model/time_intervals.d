@@ -158,7 +158,11 @@ class TimeIntervals {
     }
   }
 
-  double meanTime(size_t i, size_t nrHaplotypes) const {
+  double meanTime(size_t i, size_t nrHaplotypes) const
+  out(result) {
+    assert(result > leftBoundary(i) && result < rightBoundary(i));
+  }
+  body {
     auto trivialTotalLambda = nrHaplotypes * (nrHaplotypes - 1) / 2;
     return meanTimeWithLambda(i, trivialTotalLambda);
   }

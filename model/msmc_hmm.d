@@ -85,12 +85,15 @@ class MSMC_hmm {
   State_t runBackwardDummy;
   bool have_run_forward;
   
+  string[] allele_order;
+  
   this(in PropagationCore propagationCore, in SegSite_t[] segsites) {
     this.propagationCore = propagationCore;
     this.maxDistance = propagationCore.maxDistance;
     this.segsites = chop_segsites(segsites, maxDistance);
     this.L = this.segsites.length;
     this.hmmStrideWidth = hmmStrideWidth;
+    allele_order = canonicalAlleleOrder(propagationCore.getMSMC.nrHaplotypes);
     
     scalingFactors = new double[L];
     scalingFactors[] = 0.0;
@@ -147,30 +150,89 @@ class MSMC_hmm {
     have_run_forward = true;
   }
 
-  Tuple!(double[], double[][]) runBackward(size_t hmmStrideWidth=1000) {
+  Tuple!(double[], double[][], double[][]) runBackward(size_t hmmStrideWidth=1000) {
     enforce(have_run_forward);
 
     auto nrMarginals = propagationCore.getMSMC.nrMarginals;
+    auto nrTimeIntervals = propagationCore.getMSMC.nrTimeIntervals;
+    auto nrHaplotypes = propagationCore.getMSMC.nrHaplotypes;
 
     auto forwardBackwardResultVec = new double[nrMarginals];
     auto forwardBackwardResultMat = new double[][](nrMarginals, nrMarginals);
+    auto nrEmissions = propagationCore.getMSMC.emissionRate.getNrEmissionIds();
+    auto emissionResultMat = new double[][](nrTimeIntervals, nrEmissions);
     foreach(i; 0 .. nrMarginals) {
       forwardBackwardResultVec[i] = 0.0;
       forwardBackwardResultMat[i][] = 0.0;
     }
+    foreach(i; 0 .. nrTimeIntervals)
+      emissionResultMat[i][] = 0.0;
     
     currentBackwardIndex = L - 1;
     auto expecVec = new double[nrMarginals];
     auto expecMat = new double[][](nrMarginals, nrMarginals);
+    auto emissionMat = new double[][](nrTimeIntervals, nrEmissions);
+    
+    auto emissions_visited = 0;
+    auto total_emissions_visited = 0;
+    auto total_transitions_visited = 0;
+    
     for(size_t pos = segsites[$ - 1].pos; pos > segsites[0].pos && pos <= segsites[$ - 1].pos; pos -= hmmStrideWidth) {
       getSingleExpectation(pos, expecVec, expecMat);
+      total_transitions_visited += 1;
       foreach(i; 0 .. nrMarginals) {
         forwardBackwardResultVec[i] += expecVec[i];
         forwardBackwardResultMat[i][] += expecMat[i][];
       }
-    }
+      getSingleEmissionExpectation(pos, emissionMat);
+      foreach(i; 0 .. nrTimeIntervals)
+        emissionResultMat[i][] += emissionMat[i][];
 
-    return tuple(forwardBackwardResultVec, forwardBackwardResultMat);
+      if(propagationCore.getMSMC.nrHaplotypes > 2) {
+        getSingleEmissionExpectation(pos, emissionMat);
+        foreach(i; 0 .. nrTimeIntervals)
+          emissionResultMat[i][] += emissionMat[i][];
+        // auto interPos = pos;
+        // while(interPos > pos - hmmStrideWidth && interPos <= pos && interPos > segsites[0].pos) {
+        //   auto site = getSegSite(interPos);
+        //   if(site.obs[0] >= 1)
+        //     total_emissions_visited += 1;
+        //   if(site.obs[0] > 1)
+        //     emissions_visited += 1;
+        //   getSingleEmissionExpectation(interPos, emissionMat);
+        //   foreach(i; 0 .. nrTimeIntervals)
+        //     emissionResultMat[i][] += emissionMat[i][];
+        //   auto index = getRightIndexAtPos(interPos);
+        //   if(index == 0)
+        //     break;
+        //   interPos = segsites[index - 1].pos;
+        // }
+      }
+    }
+    
+    // auto emissions = 0;
+    // auto total_emissions = 0;
+    // size_t lastPos;
+    // foreach(i, s; segsites) {
+    //   emissions += s.obs[0] > 1;
+    //   if(i > 0 && s.obs[0] > 0)
+    //     total_emissions += s.pos - lastPos;
+    //   lastPos = s.pos;
+    // }
+    // 
+    // foreach(i; 0 .. nrTimeIntervals) {
+    //   emissionResultMat[i][0] /= cast(double)(total_emissions_visited - emissions_visited);
+    //   emissionResultMat[i][0] *= cast(double)(total_emissions - emissions) / total_emissions;
+    //   emissionResultMat[i][1 .. $] /= cast(double)emissions_visited;
+    //   emissionResultMat[i][1 .. $] *= cast(double)emissions / total_emissions;
+    // }
+    // 
+    // foreach(i; 0 .. nrMarginals) {
+    //   forwardBackwardResultVec[i] /= cast(double)total_transitions_visited;
+    //   forwardBackwardResultMat[i][] /= cast(double)total_transitions_visited;
+    // }
+    
+    return tuple(forwardBackwardResultVec, forwardBackwardResultMat, emissionResultMat);
   }
   
   private void getSingleExpectation(size_t pos, double[] expecVec, double[][] expecMat)
@@ -191,9 +253,36 @@ class MSMC_hmm {
     getForwardState(expectationForwardDummy, pos - 1);
     getBackwardState(expectationBackwardDummy, pos);
     auto site = getSegSite(pos);
-    
     propagationCore.getTransitionExpectation(expectationForwardDummy, expectationBackwardDummy, site, expecVec, expecMat);
-  } 
+  }
+
+  private void getSingleEmissionExpectation(size_t pos, double[][] emissionMat)
+  in {
+    assert(pos > segsites[0].pos, text(pos, " ", segsites[0].pos));
+    assert(pos <= segsites[$ - 1].pos, text([pos, segsites[0].pos]));
+    assert(have_run_forward);
+  }
+  body {    
+    getForwardState(expectationForwardDummy, pos);
+    getBackwardState(expectationBackwardDummy, pos);
+    auto posterior = expectationForwardDummy.vec.dup;
+    posterior[] *= expectationBackwardDummy.vec[];
+    posterior[] /= posterior.reduce!"a+b"();
+    auto site = getSegSite(pos);
+    foreach(i; 0 .. propagationCore.getMSMC.nrTimeIntervals)
+      emissionMat[i][] = 0.0;
+    foreach(o; site.obs) {
+      if(o > 0) {
+        auto alleles = allele_order[o - 1];
+        foreach(aij; 0 .. propagationCore.getMSMC.nrStates) {
+          auto triple = propagationCore.getMSMC.marginalIndex.getTripleFromIndex(aij);
+          auto emissionId = propagationCore.getMSMC.emissionRate.getEmissionId(alleles, triple.ind1, triple.ind2);
+          if(emissionId >= 0)
+            emissionMat[triple.time][emissionId] += posterior[aij];
+        }
+      }
+    }
+  }
   
   void getForwardState(State_t s, size_t pos)
   in {
@@ -306,7 +395,7 @@ unittest {
   
   auto lambdaVec = new double[30];
   lambdaVec[] = 1.0;
-  auto params = new MSMCmodel(0.01, 0.001, [0U, 0, 1, 1], lambdaVec, 10, 4);
+  auto params = new MSMCmodel(0.01, 0.001, [0U, 0, 1, 1], lambdaVec, 10, 4, false);
   auto lvl = 1.0e-8;
   
   auto propagationCoreNaive = new PropagationCoreNaive(params, 100);
@@ -314,7 +403,7 @@ unittest {
 
   auto nrS = propagationCoreFast.getMSMC.nrStates;
   
-  auto data = readSegSites("model/hmm_testData.txt");
+  auto data = readSegSites("model/hmm_testData.txt", false);
   
   auto msmc_hmm_fast = new MSMC_hmm(propagationCoreFast, data);
   auto msmc_hmm_naive = new MSMC_hmm(propagationCoreNaive, data);

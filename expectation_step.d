@@ -34,7 +34,7 @@ import model.msmc_hmm;
 import model.data;
 import logger;
 
-alias Tuple!(double[], double[][], double) ExpectationResult_t;
+alias Tuple!(double[], double[][], double[][], double) ExpectationResult_t;
 
 ExpectationResult_t getExpectation(in SegSite_t[][] inputData, MSMCmodel msmc, size_t hmmStrideWidth,
                                    size_t maxDistance, bool naiveImplementation=false)
@@ -47,10 +47,14 @@ ExpectationResult_t getExpectation(in SegSite_t[][] inputData, MSMCmodel msmc, s
   
   auto expectationResultVec = new double[msmc.nrMarginals];
   auto expectationResultMat = new double[][](msmc.nrMarginals, msmc.nrMarginals);
+  auto emissionResultMat = new double[][](msmc.nrTimeIntervals, msmc.emissionRate.getNrEmissionIds());
   foreach(au; 0 .. msmc.nrMarginals) {
     expectationResultVec[au] = 0.0;
     expectationResultMat[au][] = 0.0;
   }
+  foreach(i; 0 .. msmc.nrTimeIntervals)
+    emissionResultMat[i][] = 0.0;
+  
   auto logLikelihood = 0.0;
   
   auto cnt = 0;
@@ -61,12 +65,22 @@ ExpectationResult_t getExpectation(in SegSite_t[][] inputData, MSMCmodel msmc, s
       expectationResultVec[au] += result[0][au];
       expectationResultMat[au][] += result[1][au][];
     }
-    logLikelihood += result[2];
+    if(msmc.nrHaplotypes > 2) {
+      foreach(i; 0 .. msmc.nrTimeIntervals)
+        emissionResultMat[i][] += result[2][i][];
+    }
+    logLikelihood += result[3];
   }
   logInfo(format(", log likelihood: %s", logLikelihood));
   logInfo("\n");
+  // foreach(i; 0 .. msmc.nrTimeIntervals) {
+  //   foreach(j; 0 .. msmc.emissionRate.getNrEmissionIds()) {
+  //     stderr.write(emissionResultMat[i][j], "\t");
+  //   }
+  //   stderr.writeln("");
+  // }
   
-  return tuple(expectationResultVec, expectationResultMat, logLikelihood);
+  return tuple(expectationResultVec, expectationResultMat, emissionResultMat, logLikelihood);
 }
 
 ExpectationResult_t singleChromosomeExpectation(in SegSite_t[] data, size_t hmmStrideWidth,
@@ -78,16 +92,16 @@ ExpectationResult_t singleChromosomeExpectation(in SegSite_t[] data, size_t hmmS
   auto exp = msmc_hmm.runBackward(hmmStrideWidth);
   auto logL = msmc_hmm.logLikelihood();
   msmc_hmm.destroy();
-  return tuple(exp[0], exp[1], logL);
+  return tuple(exp[0], exp[1], exp[2], logL);
 }
 
 unittest {
   writeln("test expectation step");
   auto lambdaVec = new double[12];
   lambdaVec[] = 1.0;
-  auto msmc = new MSMCmodel(0.01, 0.001, [0U, 0, 1, 1], lambdaVec, 4, 4);
+  auto msmc = new MSMCmodel(0.01, 0.001, [0U, 0, 1, 1], lambdaVec, 4, 4, false);
   auto fileName = "model/hmm_testData.txt";
-  auto data = readSegSites(fileName);
+  auto data = readSegSites(fileName, false);
   auto hmmStrideWidth = 100UL;
   
   auto allData = [data, data, data];
@@ -113,4 +127,12 @@ unittest {
     }
   }
   assert(approxEqual(sumSingleThreaded, sumMultiThreaded, 1.0e-8, 0.0), text([sumSingleThreaded, sumMultiThreaded]));
+
+  foreach(i; 0 .. msmc.nrTimeIntervals) {
+    foreach(id; 0 .. msmc.emissionRate.getNrEmissionIds) {
+      assert(resultSingleThreaded[2][i][id] >= 0.0, text(resultSingleThreaded[2][i][id]));
+      assert(resultMultiThreaded[2][i][id] >= 0.0, text(resultMultiThreaded[2][i][id]));
+      assert(approxEqual(resultSingleThreaded[2][i][id], resultMultiThreaded[2][i][id], lvl, 0.0));
+    }
+  }
 }
