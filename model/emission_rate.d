@@ -183,6 +183,13 @@ class EmissionRate {
     assert(timeIndex < T);
   }
   body {
+    if(nrHaplotypes == 2) {
+      auto t = timeIntervals.meanTimeWithLambda(timeIndex, coal.getTotalMarginalLambda(timeIndex));
+      if(emissionId == 0)
+        return exp(-2.0 * mu * t);
+      else
+        return (1.0 - exp(-2.0 * mu * t));
+    }
     if(directedEmissions)
       return directedEmissionProb(emissionId, timeIndex, i_tTot);
     else
