@@ -38,13 +38,14 @@ class MSMCmodel {
   const TimeIntervals tTotIntervals;
   const PiecewiseConstantCoalescenceRate coal;
 
-  this(double mutationRate, double recombinationRate, in size_t[] subpopLabels, in double[] lambdaVec, in double[] timeBoundaries, size_t nrTtotIntervals, bool directedEmissions) {
+  this(double mutationRate, double recombinationRate, in size_t[] subpopLabels, in double[] lambdaVec,
+       in double[] timeBoundaries, size_t nrTtotIntervals, bool directedEmissions) {
     auto nrHaplotypes = cast(size_t)subpopLabels.length;
-    emissionRate = new EmissionRate(nrHaplotypes, mutationRate, directedEmissions);
     timeIntervals = new TimeIntervals(timeBoundaries ~ [double.infinity]);
     tTotIntervals = TimeIntervals.standardTotalBranchlengthIntervals(nrTtotIntervals, nrHaplotypes, directedEmissions);
     marginalIndex = new MarginalTripleIndex(nrTimeIntervals, subpopLabels);
     coal = new PiecewiseConstantCoalescenceRate(marginalIndex, lambdaVec);
+    emissionRate = new EmissionRate(marginalIndex, timeIntervals, tTotIntervals, coal, mutationRate, directedEmissions);
     transitionRate = new TransitionRate(marginalIndex, coal, timeIntervals, recombinationRate);
   }
 
@@ -71,20 +72,6 @@ class MSMCmodel {
       lambdaVec ~= p1 == p2 ? 1.0 : 0.5;
     }
     return new MSMCmodel(mutationRate, recombinationRate, subpopLabels, lambdaVec, nrTimeIntervals, nrTtotIntervals, directedEmissions);
-  }
-  
-  double emissionProb(string alleles, size_t aij, size_t tTotIndex) const {
-    auto triple = marginalIndex.getTripleFromIndex(aij);
-    auto id = emissionRate.getEmissionId(alleles, triple.ind1, triple.ind2);
-    auto time = timeIntervals.meanTime(triple.time, nrHaplotypes);
-    auto tTot = tTotIntervals.meanTime(tTotIndex, 2);
-    return emissionRate.emissionProb(id, time, tTot);
-  }
-  
-  double emissionProbHom(size_t time_index, size_t ttotIndex) const {
-    auto time = timeIntervals.meanTime(time_index, nrHaplotypes);
-    auto tTot = tTotIntervals.meanTime(ttotIndex, 2);
-    return emissionRate.emissionProb(0, time, tTot);
   }
   
   @property size_t nrHaplotypes() const {

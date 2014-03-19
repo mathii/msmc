@@ -69,7 +69,7 @@ class PropagationCoreFast : PropagationCore {
           if(i == 0)
             emissionProbs[tt][i][aij] = 1.0; // missing data
           else
-            emissionProbs[tt][i][aij] = msmc.emissionProb(allele_order[i - 1], aij, tt);
+            emissionProbs[tt][i][aij] = msmc.emissionRate.emissionProb(allele_order[i - 1], aij, tt);
         }
       }
     }
@@ -79,7 +79,7 @@ class PropagationCoreFast : PropagationCore {
       foreach(au; 0 .. msmc.nrMarginals) {
         auto index = msmc.marginalIndex.getIndexFromMarginalIndex(au);
         auto time = msmc.marginalIndex.getTripleFromIndex(index).time;
-        emissionProbsMarginal[tt][au] = msmc.emissionProbHom(time, tt);
+        emissionProbsMarginal[tt][au] = msmc.emissionRate.emissionProb(0, time, tt);
       }
     }
     
