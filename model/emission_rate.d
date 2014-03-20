@@ -69,7 +69,7 @@ class EmissionRate {
       }
     }
   }
-  
+
   double mutationTreeLength(double start_time, size_t M, size_t k) const {
     auto sum = 0.0;
     foreach(j; 2 .. M - k + 1 + 1) {
@@ -234,27 +234,25 @@ class EmissionRate {
         return (1.0 - exp(-mu * tTot)) * upperTreeEmissions[timeIndex][freq] / tTot;
     }
   }
-  
-  double getDegeneracy(int emissionId) const {
-    if(directedEmissions) {
-      if(emissionId == 0)
-        return 1;
-      if(emissionId == 1)
-        return 2;
-      if(emissionId == 2)
-        return 1;
-      if(emissionId < nrHaplotypes)
-        return binomial(nrHaplotypes - 2, cast(size_t)emissionId - 2);
-      if(emissionId == nrHaplotypes)
-        return nrHaplotypes - 2;
-      if(emissionId > nrHaplotypes)
-        return binomial(nrHaplotypes - 2, cast(size_t)emissionId - nrHaplotypes + 1);
-      return 1;
-    }
-    else {
-      assert(false);
-    }
-  }
+
+  // double getDegeneracy(int emissionId) const {
+  //   if(directedEmissions) {
+  //     if(emissionId == 0)
+  //       return 1;
+  //     if(emissionId == 1)
+  //       return 2;
+  //     if(emissionId == 2)
+  //       return 1;
+  //     if(emissionId < nrHaplotypes)
+  //       return binomial(nrHaplotypes - 2, cast(size_t)emissionId - 2);
+  //     if(emissionId >= nrHaplotypes)
+  //       return binomial(nrHaplotypes - 2, cast(size_t)emissionId - nrHaplotypes + 1);
+  //     return 1;
+  //   }
+  //   else {
+  //     assert(false);
+  //   }
+  // }
   
   size_t getNrEmissionIds() const {
     if(directedEmissions)

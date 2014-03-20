@@ -248,23 +248,23 @@ void run() {
                                          directedEmissions);
   
   auto nrFiles = inputData.length;
-  if(params.nrHaplotypes > 2) {
-    if(treeFileNames.length == 0) {
-      auto cnt = 0;
-      foreach(i, data; taskPool.parallel(inputData)) {
-        logInfo(format("\r[%s/%s] estimating total branchlengths", ++cnt, nrFiles));
-        estimateTotalBranchlengths(data, params);
-      }
-    }
-    else {
-      auto cnt = 0;
-      foreach(data; taskPool.parallel(zip(inputData, treeFileNames))) {
-        logInfo(format("\r[%s/%s] estimating total branchlengths", ++cnt, nrFiles));
-        readTotalBranchlengths(data[0], params, data[1]);
-      }
-    }
-    logInfo("\n");
-  }
+  // if(params.nrHaplotypes > 2) {
+  //   if(treeFileNames.length == 0) {
+  //     auto cnt = 0;
+  //     foreach(i, data; taskPool.parallel(inputData)) {
+  //       logInfo(format("\r[%s/%s] estimating total branchlengths", ++cnt, nrFiles));
+  //       estimateTotalBranchlengths(data, params);
+  //     }
+  //   }
+  //   else {
+  //     auto cnt = 0;
+  //     foreach(data; taskPool.parallel(zip(inputData, treeFileNames))) {
+  //       logInfo(format("\r[%s/%s] estimating total branchlengths", ++cnt, nrFiles));
+  //       readTotalBranchlengths(data[0], params, data[1]);
+  //     }
+  //   }
+  //   logInfo("\n");
+  // }
   
   auto f = File(loopFileName, "w");
   f.close();
@@ -274,13 +274,15 @@ void run() {
     auto expectationResult = getExpectation(inputData, params, hmmStrideWidth, 1000, naiveImplementation);
     auto eVec = expectationResult[0];
     auto eMat = expectationResult[1];
-    auto logLikelihood = expectationResult[2];
+    auto eEmissions = expectationResult[2];
+    auto logLikelihood = expectationResult[3];
     printLoop(loopFileName, params, logLikelihood);
     if(verbose) {
       auto filename = outFilePrefix ~ format(".loop_%s.expectationMatrix.txt", iteration);
-      printMatrix(filename, eVec, eMat);
+      printMatrix(filename, eVec, eMat, eEmissions);
     }
-    auto newParams = getMaximization(eVec, eMat, params, timeSegmentPattern, fixedPopSize, fixedRecombination);
+    auto newParams = getMaximization(eVec, eMat, eEmissions, params, timeSegmentPattern, fixedPopSize, 
+                                     fixedRecombination);
     params = newParams;
   }
   
@@ -297,12 +299,13 @@ SegSite_t[][] readDataFromFiles(string[] filenames, bool directedEmissions, size
   return ret;
 }
 
-void printMatrix(string filename, double[] eVec, double[][] eMat) {
+void printMatrix(string filename, double[] eVec, double[][] eMat, double[][] eEmissions) {
   auto f = File(filename, "w");
   f.writeln(eVec.map!"text(a)"().join("\t"));
-  foreach(au; 0 .. eVec.length) {
-    f.writeln(eMat[au].map!"text(a)"().join("\t"));
-  }
+  foreach(e; eMat)
+    f.writeln(e.map!"text(a)"().join("\t"));
+  foreach(e; eEmissions)
+    f.writeln(e.map!"text(a)"().join("\t"));
 }
 
 void printLoop(string filename, MSMCmodel params, double logLikelihood) {

@@ -34,7 +34,7 @@ import model.msmc_hmm;
 import model.data;
 import logger;
 
-alias Tuple!(double[], double[][], double) ExpectationResult_t;
+alias Tuple!(double[], double[][], double[][], double) ExpectationResult_t;
 
 ExpectationResult_t getExpectation(in SegSite_t[][] inputData, MSMCmodel msmc, size_t hmmStrideWidth,
                                    size_t maxDistance, bool naiveImplementation=false)
@@ -47,10 +47,13 @@ ExpectationResult_t getExpectation(in SegSite_t[][] inputData, MSMCmodel msmc, s
   
   auto expectationResultVec = new double[msmc.nrMarginals];
   auto expectationResultMat = new double[][](msmc.nrMarginals, msmc.nrMarginals);
+  auto expectationResultEmissions = new double[][](msmc.nrTimeIntervals, msmc.emissionRate.getNrEmissionIds());
   foreach(au; 0 .. msmc.nrMarginals) {
     expectationResultVec[au] = 0.0;
     expectationResultMat[au][] = 0.0;
   }
+  foreach(i; 0 .. msmc.nrTimeIntervals)
+    expectationResultEmissions[i][] = 0.0;
   auto logLikelihood = 0.0;
   
   auto cnt = 0;
@@ -61,12 +64,14 @@ ExpectationResult_t getExpectation(in SegSite_t[][] inputData, MSMCmodel msmc, s
       expectationResultVec[au] += result[0][au];
       expectationResultMat[au][] += result[1][au][];
     }
-    logLikelihood += result[2];
+    foreach(i; 0 .. msmc.nrTimeIntervals)
+      expectationResultEmissions[i][] += result[2][i][];
+    logLikelihood += result[3];
   }
   logInfo(format(", log likelihood: %s", logLikelihood));
   logInfo("\n");
   
-  return tuple(expectationResultVec, expectationResultMat, logLikelihood);
+  return tuple(expectationResultVec, expectationResultMat, expectationResultEmissions, logLikelihood);
 }
 
 ExpectationResult_t singleChromosomeExpectation(in SegSite_t[] data, size_t hmmStrideWidth,
@@ -78,7 +83,7 @@ ExpectationResult_t singleChromosomeExpectation(in SegSite_t[] data, size_t hmmS
   auto exp = msmc_hmm.runBackward(hmmStrideWidth);
   auto logL = msmc_hmm.logLikelihood();
   msmc_hmm.destroy();
-  return tuple(exp[0], exp[1], logL);
+  return tuple(exp[0], exp[1], exp[2], logL);
 }
 
 unittest {

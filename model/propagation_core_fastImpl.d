@@ -55,12 +55,13 @@ class PropagationCoreFast : PropagationCore {
   double[][] transitionMatrixQ2;
 
   const MSMCmodel msmc;
+  string[] allele_order;
   
   this(in MSMCmodel msmc, size_t maxDistance) {
     this.msmc = msmc;
     enforce(maxDistance > 0);
 
-    auto allele_order = canonicalAlleleOrder(msmc.nrHaplotypes);
+    allele_order = canonicalAlleleOrder(msmc.nrHaplotypes);
     
     emissionProbs = new double[][][](msmc.nrTtotIntervals, allele_order.length + 1, msmc.nrStates);
     foreach(tt; 0 .. msmc.nrTtotIntervals) {
@@ -408,6 +409,31 @@ class PropagationCoreFast : PropagationCore {
       }
       eVec[au] += f.vec[aij] * (transitionMatrixQ1[au] + transitionMatrixQ2[au][au]) * fullE(to_segsite, aij) * 
                   b.vec[aij];
+    }
+  }
+  
+  override void getEmissionExpectation(State_t f, State_t b, in SegSite_t to_segsite, size_t nrHomsCalled,
+                                       double[][] eEmission) const {
+    auto nrEmissionIds = msmc.emissionRate.getNrEmissionIds();
+    auto post = new double[msmc.nrStates];
+    foreach(aij; 0 .. msmc.nrStates) {
+      post[aij] = f.vec[aij] * b.vec[aij];
+    }
+    post[] /= post.reduce!"a+b"();
+    foreach(i; 0 .. msmc.nrTimeIntervals)
+      eEmission[i][] = 0.0;
+    foreach(aij; 0 .. msmc.nrStates) {
+      auto triple = msmc.marginalIndex.getTripleFromIndex(aij);
+      foreach(o; to_segsite.obs) {
+        if(o >= 1) {
+          auto alleles = allele_order[o - 1];
+          auto emissionId = msmc.emissionRate.getEmissionId(alleles, triple.ind1, triple.ind2);
+          if(emissionId >= 0)
+            eEmission[triple.time][emissionId] += post[aij] / cast(double)to_segsite.obs.length;
+        }
+      }
+      if(to_segsite.obs[0] > 0)
+        eEmission[triple.time][0] += cast(double)nrHomsCalled * msmc.transitionRate.equilibriumProbability(aij);
     }
   }
   
