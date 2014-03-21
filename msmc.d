@@ -248,23 +248,23 @@ void run() {
                                          directedEmissions);
   
   auto nrFiles = inputData.length;
-  // if(params.nrHaplotypes > 2) {
-  //   if(treeFileNames.length == 0) {
-  //     auto cnt = 0;
-  //     foreach(i, data; taskPool.parallel(inputData)) {
-  //       logInfo(format("\r[%s/%s] estimating total branchlengths", ++cnt, nrFiles));
-  //       estimateTotalBranchlengths(data, params);
-  //     }
-  //   }
-  //   else {
-  //     auto cnt = 0;
-  //     foreach(data; taskPool.parallel(zip(inputData, treeFileNames))) {
-  //       logInfo(format("\r[%s/%s] estimating total branchlengths", ++cnt, nrFiles));
-  //       readTotalBranchlengths(data[0], params, data[1]);
-  //     }
-  //   }
-  //   logInfo("\n");
-  // }
+  if(params.nrHaplotypes > 2) {
+    if(treeFileNames.length == 0) {
+      auto cnt = 0;
+      foreach(i, data; taskPool.parallel(inputData)) {
+        logInfo(format("\r[%s/%s] estimating total branchlengths", ++cnt, nrFiles));
+        estimateTotalBranchlengths(data, params);
+      }
+    }
+    else {
+      auto cnt = 0;
+      foreach(data; taskPool.parallel(zip(inputData, treeFileNames))) {
+        logInfo(format("\r[%s/%s] estimating total branchlengths", ++cnt, nrFiles));
+        readTotalBranchlengths(data[0], params, data[1]);
+      }
+    }
+    logInfo("\n");
+  }
   
   auto f = File(loopFileName, "w");
   f.close();
