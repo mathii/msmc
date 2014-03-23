@@ -113,7 +113,7 @@ class TransitionRate {
     in {
       assert(t1 >= timeIntervals.leftBoundary(a) && t1 <= timeIntervals.rightBoundary(a));
       assert(t2 >= timeIntervals.leftBoundary(a) && t2 <= timeIntervals.rightBoundary(a));
-      assert(t1 < t2 && t2 <= timeIntervals.meanTimeWithLambda(b, coal.getTotalMarginalLambda(b)));
+      assert(t1 <= t2);// && t2 <= timeIntervals.meanTimeWithLambda(b, coal.getTotalMarginalLambda(b)));
     }
   body {
     auto meanTime = timeIntervals.meanTimeWithLambda(b, coal.getTotalMarginalLambda(b));

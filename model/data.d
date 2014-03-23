@@ -316,3 +316,38 @@ double getTheta(in SegSite_t[][] data, size_t nrHaplotypes) {
   auto watterson = iota(1, nrHaplotypes).map!"1.0 / a"().reduce!"a+b"();
   return cast(double)nr_segsites / cast(double)called_sites / watterson;
 }
+
+size_t[] getAlleleCounts(in SegSite_t[][] data, size_t nrHaplotypes, bool directedEmissions) {
+  auto n = directedEmissions ? nrHaplotypes : cast(int)(nrHaplotypes / 2) + 1;
+  auto alleleCounts = new size_t[n];
+  auto allele_order = canonicalAlleleOrder(nrHaplotypes);
+  foreach(d; data) {
+    size_t lastPos = d[0].pos;
+    foreach(dd; d[1 .. $]) {
+      if(dd.obs[0] > 0) {
+        alleleCounts[0] += dd.pos - lastPos - 1;
+        auto freq = getFreq(allele_order[dd.obs[0] - 1], directedEmissions);
+        alleleCounts[freq] += 1.0;
+      }
+      lastPos = dd.pos;
+    }
+  }
+  return alleleCounts;
+}
+
+size_t getFreq(string alleles, bool directedEmissions) {
+  auto count_derived = count(alleles, '1');
+  if(!directedEmissions) {
+    if(count_derived > cast(int)(alleles.length / 2))
+      count_derived = alleles.length - count_derived;
+  }
+  return count_derived;
+}
+
+unittest {
+  writeln("test.data.getFreq");
+  assert(getFreq("0011", true) == 2);
+  assert(getFreq("1110", true) == 3);
+  assert(getFreq("1110", false) == 1);
+  assert(getFreq("0000", false) == 0);
+}

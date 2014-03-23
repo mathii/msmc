@@ -147,7 +147,7 @@ class MSMC_hmm {
     have_run_forward = true;
   }
 
-  Tuple!(double[], double[][], double[][]) runBackward(size_t hmmStrideWidth=1000) {
+  Tuple!(double[], double[][]) runBackward(size_t hmmStrideWidth=1000) {
     enforce(have_run_forward);
 
     auto nrMarginals = propagationCore.getMSMC.nrMarginals;
@@ -156,38 +156,23 @@ class MSMC_hmm {
 
     auto forwardBackwardResultVec = new double[nrMarginals];
     auto forwardBackwardResultMat = new double[][](nrMarginals, nrMarginals);
-    auto forwardBackwardResultEmissions = new double[][](nrTimeIntervals, nrEmissionIds);
     foreach(i; 0 .. nrMarginals) {
       forwardBackwardResultVec[i] = 0.0;
       forwardBackwardResultMat[i][] = 0.0;
     }
-    foreach(i; 0 .. nrTimeIntervals)
-      forwardBackwardResultEmissions[i][] = 0.0;
     
     currentBackwardIndex = L - 1;
     auto expecVec = new double[nrMarginals];
     auto expecMat = new double[][](nrMarginals, nrMarginals);
-    auto expecEmissions = new double[][](nrTimeIntervals, nrEmissionIds);
-    auto index = segsites.length - 1;
-    size_t pos = segsites[index].pos;
-    while(pos > segsites[0].pos) {
-      auto nextPos = pos - segsites[index - 1].pos > hmmStrideWidth ? pos - hmmStrideWidth : segsites[index - 1].pos;
-      auto nrHomsCalled = pos - nextPos - 1;
+    for(size_t pos = segsites[$ - 1].pos; pos > segsites[0].pos && pos <= segsites[$ - 1].pos; pos -= hmmStrideWidth) {
       getSingleTransitionExpectation(pos, expecVec, expecMat);
       foreach(au; 0 .. nrMarginals) {
-        forwardBackwardResultVec[au] += (1.0 + cast(double)nrHomsCalled) * expecVec[au];
-        forwardBackwardResultMat[au][] += (1.0 + cast(double)nrHomsCalled) * expecMat[au][];
+        forwardBackwardResultVec[au] += cast(double)hmmStrideWidth * expecVec[au];
+        forwardBackwardResultMat[au][] += cast(double)hmmStrideWidth * expecMat[au][];
       }
-      getSingleEmissionExpectation(pos, nrHomsCalled, expecEmissions);
-      foreach(a; 0 .. nrTimeIntervals) {
-        forwardBackwardResultEmissions[a][] += expecEmissions[a][];
-      }
-      pos = nextPos;
-      if(pos == segsites[index - 1].pos)
-        index -= 1;
     }
 
-    return tuple(forwardBackwardResultVec, forwardBackwardResultMat, forwardBackwardResultEmissions);
+    return tuple(forwardBackwardResultVec, forwardBackwardResultMat);
   }
   
   private void getSingleTransitionExpectation(size_t pos, double[] expecVec, double[][] expecMat)
@@ -211,14 +196,6 @@ class MSMC_hmm {
     
     propagationCore.getTransitionExpectation(expectationForwardDummy, expectationBackwardDummy, site, expecVec, expecMat);
 
-  }
-  
-  private void getSingleEmissionExpectation(size_t pos, size_t nrHomsCalled, double[][] expecEmission) {
-    getForwardState(expectationForwardDummy, pos);
-    getBackwardState(expectationBackwardDummy, pos);
-    auto site = getSegSite(pos);
-    propagationCore.getEmissionExpectation(expectationForwardDummy, expectationBackwardDummy, site, nrHomsCalled, 
-                                           expecEmission);
   }
   
   void getForwardState(State_t s, size_t pos)

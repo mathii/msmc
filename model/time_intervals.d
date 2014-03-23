@@ -144,7 +144,7 @@ class TimeIntervals {
   
   double meanTimeWithLambda(size_t i, double lambda) const
     out(result) {
-      assert(result >= leftBoundary(i) && result < rightBoundary(i), text([leftBoundary(i), result, rightBoundary(i)]));
+      assert(result >= leftBoundary(i) && result <= rightBoundary(i), text([leftBoundary(i), result, rightBoundary(i)]));
     }
   body {
     double time;

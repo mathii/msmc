@@ -32,6 +32,7 @@ import model.coalescence_rate;
 
 class EmissionRate {
   double[][] upperTreeEmissions;
+  double[] equilibriumTreeLengths;
   const TripleIndex tripleIndex;
   const TimeIntervals timeIntervals;
   const TimeIntervals tTotIntervals;
@@ -53,6 +54,7 @@ class EmissionRate {
     T = timeIntervals.nrIntervals;
     if(nrHaplotypes > 2) {
       computeUpperTreeLengths();
+      computeEquilibriumTreeLengths();
     }
   }
   
@@ -63,23 +65,32 @@ class EmissionRate {
       auto t = timeIntervals.meanTimeWithLambda(a, coal.getTotalMarginalLambda(a));
       foreach(k; 1 .. nrHaplotypes - 1) {
         auto val = mutationTreeLength(t, nrHaplotypes - 1, k);
-        // auto val = mutationTreeLength(nrHaplotypes - 1, k);
         upperTreeEmissions[a][k] = val;
         upperTreeEmissions[a][0] += binomial(nrHaplotypes - 1, k) * val;
       }
     }
   }
 
+  private void computeEquilibriumTreeLengths() {
+    equilibriumTreeLengths = new double[nrHaplotypes];
+    equilibriumTreeLengths[] = 0.0;
+    foreach(k; 1 .. nrHaplotypes) {
+      auto val = mutationTreeLength(0.0, nrHaplotypes, k);
+      equilibriumTreeLengths[k] = val;
+      equilibriumTreeLengths[0] += binomial(nrHaplotypes, k) * val;
+    }
+  }
+
   double mutationTreeLength(double start_time, size_t M, size_t k) const {
     auto sum = 0.0;
     foreach(j; 2 .. M - k + 1 + 1) {
-      sum += binomial(j, 2) * binomial(M - j, k - 1) * getExpectedCoalescenceTime(start_time, M, j);
+      sum += binomial(j, 2) * binomial(M - j, k - 1) * getExpectedCoalescenceTimes(start_time, M, j);
     }
     auto result_wakeley_book_eq_4_22 = sum / (binomial(M - 1, k) * k);
     return 2.0 * result_wakeley_book_eq_4_22 / binomial(M, k);
   }
 
-  double getExpectedCoalescenceTime(double u, size_t m, size_t k) const {
+  double getExpectedCoalescenceTimes(double u, size_t m, size_t k) const {
     auto beta = timeIntervals.findIntervalForTime(u);
   
     auto firstTerm = 0.0;
@@ -197,70 +208,72 @@ class EmissionRate {
   
   double symmetricEmissionProb(int emissionId, size_t timeIndex, size_t i_tTot) const {
     auto t = timeIntervals.meanTimeWithLambda(timeIndex, coal.getTotalMarginalLambda(timeIndex));
-    auto tTot = nrHaplotypes * t + upperTreeEmissions[timeIndex][0];
+    double tTot = equilibriumTreeLengths[0];
+    double tLeaf = tTotIntervals.meanTime(i_tTot, 2);
+    if(nrHaplotypes * t > tLeaf)
+      tLeaf = nrHaplotypes * t;
+    if(tLeaf > tTot)
+      tTot = tLeaf;
+    
     if(emissionId < 0)
       return 0.0;
-    if(emissionId == 0) {
+    if(emissionId == 0)
       return exp(-mu * tTot);
-    }
     if(emissionId == 1)
       return (1.0 - exp(-mu * tTot)) * t / tTot;
+    if(emissionId == nrHaplotypes - 1)
+      return (1.0 - exp(-mu * tTot)) * ((tLeaf - t * nrHaplotypes) / (nrHaplotypes - 2.0) + t) / tTot;
     else {
-      auto term = (1.0 - exp(-mu * tTot)) * upperTreeEmissions[timeIndex][emissionId - 1] / tTot;
-      term += (1.0 - exp(-mu * tTot)) * upperTreeEmissions[timeIndex][nrHaplotypes - emissionId] / tTot;
-      if(emissionId == nrHaplotypes - 1)
-        term += (1.0 - exp(-mu * tTot)) * t / tTot;
-      return term;
+      auto freq0 = emissionId;
+      auto freq1 = nrHaplotypes - freq0;
+      return (1.0 - exp(-mu * tTot)) * (equilibriumTreeLengths[freq0] + equilibriumTreeLengths[freq1]) / tTot;
     }
   }
   
   double directedEmissionProb(int emissionId, size_t timeIndex, size_t i_tTot) const {
     auto t = timeIntervals.meanTimeWithLambda(timeIndex, coal.getTotalMarginalLambda(timeIndex));
-    auto tTot = nrHaplotypes * t + upperTreeEmissions[timeIndex][0];
+    double tTot = equilibriumTreeLengths[0];
+    double tLeaf = tTotIntervals.meanTime(i_tTot, 2);
+    if(nrHaplotypes * t > tLeaf)
+      tLeaf = nrHaplotypes * t;
+    if(tLeaf > tTot)
+      tTot = tLeaf;
+    
     if(emissionId < 0 )
       return 0.0;
-    if(emissionId == 0) {
+    if(emissionId == 0)
       return exp(-mu * tTot);
-    }
     if(emissionId == 1)
       return (1.0 - exp(-mu * tTot)) * t / tTot;
     if(emissionId < nrHaplotypes)
-      return (1.0 - exp(-mu * tTot)) * upperTreeEmissions[timeIndex][emissionId - 1] / tTot;
+      return (1.0 - exp(-mu * tTot)) * equilibriumTreeLengths[emissionId] / tTot;
     else {
       auto freq = emissionId - nrHaplotypes + 1;
       if(freq == 1)
-        return (1.0 - exp(-mu * tTot)) * (t + upperTreeEmissions[timeIndex][1]) / tTot;
+        return (1.0 - exp(-mu * tTot)) * (tLeaf - 2.0 * t) / (nrHaplotypes - 2.0) / tTot;
       else
-        return (1.0 - exp(-mu * tTot)) * upperTreeEmissions[timeIndex][freq] / tTot;
+        return (1.0 - exp(-mu * tTot)) * equilibriumTreeLengths[freq] / tTot;
+    }
+  }
+  
+  double equilibriumEmissionProb(size_t alleleCount) const {
+    auto tTot = equilibriumTreeLengths[0];
+    if(alleleCount == 0)
+      return exp(-mu * tTot);
+    else {
+      double branchLength = equilibriumTreeLengths[alleleCount];
+      if(!directedEmissions)
+        branchLength += equilibriumTreeLengths[nrHaplotypes - alleleCount];
+      return (1.0 - exp(-mu * tTot)) * branchLength / tTot;
     }
   }
 
-  // double getDegeneracy(int emissionId) const {
-  //   if(directedEmissions) {
-  //     if(emissionId == 0)
-  //       return 1;
-  //     if(emissionId == 1)
-  //       return 2;
-  //     if(emissionId == 2)
-  //       return 1;
-  //     if(emissionId < nrHaplotypes)
-  //       return binomial(nrHaplotypes - 2, cast(size_t)emissionId - 2);
-  //     if(emissionId >= nrHaplotypes)
-  //       return binomial(nrHaplotypes - 2, cast(size_t)emissionId - nrHaplotypes + 1);
-  //     return 1;
-  //   }
-  //   else {
-  //     assert(false);
-  //   }
-  // }
-  
   size_t getNrEmissionIds() const {
     if(directedEmissions)
       return 2 * nrHaplotypes - 2;
     else 
       return nrHaplotypes;
   }
-  
 }
 
 unittest {

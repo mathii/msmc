@@ -346,31 +346,6 @@ class PropagationCoreNaive : PropagationCore {
     }
   }
   
-  override void getEmissionExpectation(State_t f, State_t b, in SegSite_t to_segsite, size_t nrHomsCalled,
-                                       double[][] eEmission) const {
-    auto nrEmissionIds = msmc.emissionRate.getNrEmissionIds();
-    auto post = new double[msmc.nrStates];
-    foreach(aij; 0 .. msmc.nrStates) {
-      post[aij] = f.vec[aij] * b.vec[aij];
-    }
-    post[] /= post.reduce!"a+b"();
-    foreach(i; 0 .. msmc.nrTimeIntervals)
-      eEmission[i][] = 0.0;
-    foreach(aij; 0 .. msmc.nrStates) {
-      auto triple = msmc.marginalIndex.getTripleFromIndex(aij);
-      foreach(o; to_segsite.obs) {
-        if(o >= 1) {
-          auto alleles = allele_order[o - 1];
-          auto emissionId = msmc.emissionRate.getEmissionId(alleles, triple.ind1, triple.ind2);
-          if(emissionId >= 0)
-            eEmission[triple.time][emissionId] += post[aij] / cast(double)to_segsite.obs.length;
-        }
-      }
-      if(to_segsite.obs[0] > 0)
-        eEmission[triple.time][0] += cast(double)nrHomsCalled * msmc.transitionRate.equilibriumProbability(aij);
-    }
-  }
-  
   override @property size_t maxDistance() const {
     return cast(size_t)forwardPropagators[0].length;
   }

@@ -28,10 +28,10 @@ import model.triple_index_marginal;
 import powell;
 import logger;
 
-MSMCmodel getMaximization(double[] eVec, double[][] eMat, double[][] eEmission, MSMCmodel params,
+MSMCmodel getMaximization(double[] eVec, double[][] eMat, size_t[] alleleCounts, MSMCmodel params,
                           in size_t[] timeSegmentPattern, bool fixedPopSize, bool fixedRecombination)
 {
-  auto minFunc = new MinFunc(eVec, eMat, eEmission, params, timeSegmentPattern, fixedPopSize, fixedRecombination);
+  auto minFunc = new MinFunc(eVec, eMat, alleleCounts, params, timeSegmentPattern, fixedPopSize, fixedRecombination);
 
   auto powell = new Powell!MinFunc(minFunc);
   auto x = minFunc.initialValues();
@@ -49,17 +49,17 @@ class MinFunc {
   size_t nrSubpopPairs, nrParams;
   const double[] expectationResultVec;
   const double[][] expectationResultMat;
-  const double[][] expectationResultEmissions;
+  const size_t[] alleleCounts;
   bool fixedPopSize, fixedRecombination;
   
-  this(in double[] expectationResultVec, in double[][] expectationResultMat, in double[][] expectationResultEmissions, 
+  this(in double[] expectationResultVec, in double[][] expectationResultMat, in size_t[] alleleCounts, 
        MSMCmodel initialParams, in size_t[] timeSegmentPattern, bool fixedPopSize, bool fixedRecombination)
   {
     this.initialParams = initialParams;
     this.timeSegmentPattern = timeSegmentPattern;
     this.expectationResultVec = expectationResultVec;
     this.expectationResultMat = expectationResultMat;
-    this.expectationResultEmissions = expectationResultEmissions;
+    this.alleleCounts = alleleCounts;
     this.fixedPopSize = fixedPopSize;
     this.fixedRecombination = fixedRecombination;
     nrSubpopPairs = initialParams.nrSubpopulations * (initialParams.nrSubpopulations + 1) / 2;
@@ -225,11 +225,9 @@ class MinFunc {
         params.transitionRate.transitionProbabilityQ1(au) + params.transitionRate.transitionProbabilityQ2(au, au)
       );
     }
-    foreach(i; 0 .. initialParams.nrTimeIntervals) {
-      foreach(id; 0 .. initialParams.emissionRate.getNrEmissionIds()) {
-        ret += expectationResultEmissions[i][id] * log(params.emissionRate.emissionProb(cast(int)id, i, 0));
-      }
-    }
+    foreach(i, a; alleleCounts)
+      // if(i != 1)
+        ret += cast(double)a * log(params.emissionRate.equilibriumEmissionProb(cast(int)i));
     return ret;
   }
 }
@@ -242,10 +240,10 @@ unittest {
   auto params = new MSMCmodel(0.01, 0.001, [0U, 0, 1, 1], lambdaVec, 4, 4, false);
   auto expectationResultVec = new double[params.nrMarginals];
   auto expectationResultMat = new double[][](params.nrMarginals, params.nrMarginals);
-  auto expectationResultEmissions = new double[][](params.nrTimeIntervals, params.emissionRate.getNrEmissionIds());
+  auto alleleCounts = new size_t[cast(int)(params.nrHaplotypes / 2)];
   auto timeSegmentPattern = [2UL, 2];
   
-  auto minFunc = new MinFunc(expectationResultVec, expectationResultMat, expectationResultEmissions, params,  
+  auto minFunc = new MinFunc(expectationResultVec, expectationResultMat, alleleCounts, params,  
                              timeSegmentPattern, false, false);
   auto rho = 0.001;
   auto x = minFunc.getXfromLambdaVec(lambdaVec);
@@ -256,7 +254,7 @@ unittest {
     assert(approxEqual(lambdaFromX[i], lambdaVec[i], 1.0e-8, 0.0), text(lambdaFromX[i], " ", lambdaVec[i]));
   assert(approxEqual(rhoFromX, rho, 1.0e-8, 0.0), text([rhoFromX, rho]));
 
-  minFunc = new MinFunc(expectationResultVec, expectationResultMat, expectationResultEmissions, params, 
+  minFunc = new MinFunc(expectationResultVec, expectationResultMat, alleleCounts, params, 
                         timeSegmentPattern, true, false);
   x = minFunc.getXfromLambdaVec(lambdaVec);
   x ~= log(rho);
@@ -266,7 +264,7 @@ unittest {
     assert(approxEqual(lambdaFromX[i], lambdaVec[i], 1.0e-8, 0.0), text(lambdaFromX[i], " ", lambdaVec[i]));
   assert(approxEqual(rhoFromX, rho, 1.0e-8, 0.0));
 
-  minFunc = new MinFunc(expectationResultVec, expectationResultMat, expectationResultEmissions, params, 
+  minFunc = new MinFunc(expectationResultVec, expectationResultMat, alleleCounts, params, 
                         timeSegmentPattern, false, true);
   x = minFunc.getXfromLambdaVec(lambdaVec);
   lambdaFromX = minFunc.getLambdaVecFromX(x);

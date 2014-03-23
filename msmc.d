@@ -61,6 +61,7 @@ double[] lambdaVec;
 size_t nrTimeSegments;
 size_t[] indices;
 string logFileName, loopFileName, finalFileName;
+size_t nrHaplotypes;
 
 
 auto helpString = "Usage: msmc [options] <datafiles>
@@ -168,15 +169,22 @@ void parseCommandLine(string[] args) {
   enforce(args.length > 1, "need at least one input file");
   enforce(hmmStrideWidth > 0, "hmmStrideWidth must be positive");
   inputFileNames = args[1 .. $];
-  if(indices.length == 0)
-    inferDefaultIndices();
-  if(subpopLabels.length == 0)
-    inferDefaultSubpopLabels(indices.length);
+  if(indices.length == 0) {
+    nrHaplotypes = getNrHaplotypesFromFile(inputFileNames[0]);
+    indices = iota(nrHaplotypes).array();
+  }
+  else
+    nrHaplotypes = indices.length;
+  if(subpopLabels.length == 0) {
+    subpopLabels = new size_t[nrHaplotypes];
+    subpopLabels[] = 0;
+  }
   enforce(indices.length == subpopLabels.length, "nr haplotypes in subpopLabels and indices must be equal");
+  
   inputData = readDataFromFiles(inputFileNames, directedEmissions, indices, skipAmbiguous);
   if(isNaN(mutationRate)) {
     stderr.write("estimating mutation rate: ");
-    mutationRate = getTheta(inputData, indices.length) / 2.0;
+    mutationRate = getTheta(inputData, nrHaplotypes) / 2.0;
     stderr.writeln(mutationRate);
   }
   if(isNaN(recombinationRate))
@@ -227,16 +235,6 @@ void printGlobalParams() {
     logInfo(format("transition matrices written to %s.loop_*.expectationMatrix.txt\n", outFilePrefix));
 }
 
-void inferDefaultIndices() {
-  auto nrHaplotypes = getNrHaplotypesFromFile(inputFileNames[0]);
-  indices = iota(nrHaplotypes).array();
-}
-
-void inferDefaultSubpopLabels(size_t nrHaplotypes) {
-  subpopLabels = new size_t[nrHaplotypes];
-  subpopLabels[] = 0;
-}
-
 
 void run() {
   MSMCmodel params;
@@ -266,6 +264,9 @@ void run() {
     logInfo("\n");
   }
   
+  auto alleleCounts = getAlleleCounts(inputData, nrHaplotypes, directedEmissions);
+  logInfo(format("allele Counts: %s\n", text(alleleCounts)));
+  
   auto f = File(loopFileName, "w");
   f.close();
   
@@ -274,14 +275,13 @@ void run() {
     auto expectationResult = getExpectation(inputData, params, hmmStrideWidth, 1000, naiveImplementation);
     auto eVec = expectationResult[0];
     auto eMat = expectationResult[1];
-    auto eEmissions = expectationResult[2];
-    auto logLikelihood = expectationResult[3];
+    auto logLikelihood = expectationResult[2];
     printLoop(loopFileName, params, logLikelihood);
     if(verbose) {
       auto filename = outFilePrefix ~ format(".loop_%s.expectationMatrix.txt", iteration);
-      printMatrix(filename, eVec, eMat, eEmissions);
+      printMatrix(filename, eVec, eMat);
     }
-    auto newParams = getMaximization(eVec, eMat, eEmissions, params, timeSegmentPattern, fixedPopSize, 
+    auto newParams = getMaximization(eVec, eMat, alleleCounts, params, timeSegmentPattern, fixedPopSize, 
                                      fixedRecombination);
     params = newParams;
   }
@@ -299,12 +299,10 @@ SegSite_t[][] readDataFromFiles(string[] filenames, bool directedEmissions, size
   return ret;
 }
 
-void printMatrix(string filename, double[] eVec, double[][] eMat, double[][] eEmissions) {
+void printMatrix(string filename, double[] eVec, double[][] eMat) {
   auto f = File(filename, "w");
   f.writeln(eVec.map!"text(a)"().join("\t"));
   foreach(e; eMat)
-    f.writeln(e.map!"text(a)"().join("\t"));
-  foreach(e; eEmissions)
     f.writeln(e.map!"text(a)"().join("\t"));
 }
 
