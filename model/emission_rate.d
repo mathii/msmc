@@ -52,10 +52,8 @@ class EmissionRate {
     this.directedEmissions = directedEmissions;
     nrHaplotypes = tripleIndex.nrIndividuals;
     T = timeIntervals.nrIntervals;
-    if(nrHaplotypes > 2) {
-      // computeUpperTreeLengths();
-      computeEquilibriumTreeLengths();
-    }
+    // computeUpperTreeLengths();
+    computeEquilibriumTreeLengths();
   }
   
   // private void computeUpperTreeLengths() {
@@ -198,7 +196,7 @@ class EmissionRate {
       if(emissionId == 0)
         return exp(-2.0 * mu * t);
       else
-        return (1.0 - exp(-2.0 * mu * t));
+        return (1.0 - exp(-mu * t));
     }
     if(directedEmissions)
       return directedEmissionProb(emissionId, timeIndex, i_tTot);
