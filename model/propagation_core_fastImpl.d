@@ -393,23 +393,45 @@ class PropagationCoreFast : PropagationCore {
   override void getTransitionExpectation(State_t f, State_t b,
       in SegSite_t to_segsite, double[] eVec, double[][] eMat) const
   {
+    // auto norm = 0.0;
     foreach(bv; 0 .. msmc.nrMarginals) {
       foreach(au; 0 .. msmc.nrMarginals) {
         eMat[au][bv] =
             f.vecMarginal[bv] * transitionMatrixQ2[au][bv] * b.vecMarginalEmission[au];
+        // norm += eMat[au][bv];
       }
     }
     eVec[] = 0.0;
     foreach(aij; 0 .. msmc.nrStates) {
       auto au = msmc.marginalIndex.getMarginalIndexFromIndex(aij);
-      eMat[au][au] -= f.vec[aij] * transitionMatrixQ2[au][au] * fullE(to_segsite, aij) * b.vec[aij];
+      auto subtract = f.vec[aij] * transitionMatrixQ2[au][au] * fullE(to_segsite, aij) * b.vec[aij];
+      eMat[au][au] -= subtract;
+      // norm -= subtract;
       if(eMat[au][au] < 0.0) { // this just corrects tiny numerical errors from the addition-subtraction here.
         assert(-eMat[au][au] < 1.0e-10, text(eMat[au][au]));
         eMat[au][au] = 0.0;
       }
-      eVec[au] += f.vec[aij] * (transitionMatrixQ1[au] + transitionMatrixQ2[au][au]) * fullE(to_segsite, aij) * 
+      auto diag = f.vec[aij] * (transitionMatrixQ1[au] + transitionMatrixQ2[au][au]) * fullE(to_segsite, aij) * 
                   b.vec[aij];
+      eVec[au] += diag;
+      // norm += diag;
     }
+    // foreach(au; 0 .. msmc.nrMarginals) {
+    //   foreach(bv; 0 .. msmc.nrMarginals)
+    //     eMat[au][bv] /= norm;
+    //   eVec[au] /= norm;
+    // }
+    
+    // auto fVec = f.vecMarginal;
+    // fVec[] /= fVec.reduce!"a+b"();
+    // auto bVec = b.vecMarginal;
+    // bVec[] /= bVec.reduce!"a+b"();
+    // if(to_segsite.pos == 29989960) {
+    //   writeln("f.vec: ", fVec);
+    //   writeln("b.vec: ", bVec);
+    //   writeln("eVec: ", eVec);
+    //   writeln("eMat: ", eMat);
+    // }
   }
   
   override @property size_t maxDistance() const {

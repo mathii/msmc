@@ -36,6 +36,7 @@ bool tTot = false;
 string inputFileName;
 size_t nrHaplotypes;
 uint nrThreads;
+size_t maxNr = 0;
 
 void main(string[] args) {
   try {
@@ -58,7 +59,8 @@ void parseCommandlineArgs(string[] args) {
          "nrThreads", &nrThreads,
          "nrTtotSegments|T", &nrTtotSegments,
          "tTot", &tTot,
-         "stride|s", &stride);
+         "stride|s", &stride,
+         "--maxNr", &maxNr);
   if(nrThreads)
     std.parallelism.defaultPoolThreads(nrThreads);
   enforce(args.length == 2, "need exactly one input file");
@@ -77,7 +79,8 @@ Options:
 --nrThreads <int> : nr of threads, defaults to nr of CPUs
 -T, --nrTtotSegments <int>
 --tTot : output the total branch length rather than the first coalescent time
--s, --stride <int>");
+-s, --stride <int>
+--maxNr: break after printing maximum number of points (for testing purposes)");
 }
 
 void run() {
@@ -116,7 +119,7 @@ MSMC_hmm makeStandardHmm() {
   auto lambdaVec = new double[nrTimeSegments];
   lambdaVec[] = 1.0;
   auto subpopLabels = new size_t[nrHaplotypes];
-  auto model = new MSMCmodel(mutationRate, recombinationRate, subpopLabels, lambdaVec, nrTimeSegments, nrTtotSegments, false);
+  auto model = new MSMCmodel(mutationRate, recombinationRate, subpopLabels, lambdaVec, nrTimeSegments, nrTtotSegments, true);
 
   stderr.writeln("generating propagation core");
   auto propagationCore = new PropagationCoreFast(model, 1000);
@@ -135,12 +138,17 @@ void decodeWithHmm(MSMC_hmm hmm) {
   auto backwardState = hmm.propagationCore.newBackwardState();
   
   double[][] posteriors;
+  size_t cnt;
   for(size_t pos = hmm.segsites[$ - 1].pos; pos > hmm.segsites[0].pos && pos <= hmm.segsites[$ - 1].pos; pos -= stride)
   {
+    cnt += 1;
+    if(maxNr > 0 && cnt > maxNr)
+      break;
     hmm.getForwardState(forwardState, pos);
     hmm.getBackwardState(backwardState, pos);
-    auto posterior = forwardState.vecMarginal.dup;
-    posterior[] *= backwardState.vecMarginal[];
+    // auto posterior = forwardState.vecMarginal.dup;
+    auto posterior = backwardState.vecMarginalEmission.dup;
+    // posterior[] *= backwardState.vecMarginal[];
     auto norm = posterior.reduce!"a+b"();
     posterior[] /= norm;
     posteriors ~= posterior;

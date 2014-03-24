@@ -31,7 +31,7 @@ import model.time_intervals;
 import model.coalescence_rate;
 
 class EmissionRate {
-  double[][] upperTreeEmissions;
+  // double[][] upperTreeEmissions;
   double[] equilibriumTreeLengths;
   const TripleIndex tripleIndex;
   const TimeIntervals timeIntervals;
@@ -53,23 +53,23 @@ class EmissionRate {
     nrHaplotypes = tripleIndex.nrIndividuals;
     T = timeIntervals.nrIntervals;
     if(nrHaplotypes > 2) {
-      computeUpperTreeLengths();
+      // computeUpperTreeLengths();
       computeEquilibriumTreeLengths();
     }
   }
   
-  private void computeUpperTreeLengths() {
-    upperTreeEmissions = new double[][](T, nrHaplotypes - 1);
-    foreach(a; 0 .. T) {
-      upperTreeEmissions[a][] = 0.0;
-      auto t = timeIntervals.meanTimeWithLambda(a, coal.getTotalMarginalLambda(a));
-      foreach(k; 1 .. nrHaplotypes - 1) {
-        auto val = mutationTreeLength(t, nrHaplotypes - 1, k);
-        upperTreeEmissions[a][k] = val;
-        upperTreeEmissions[a][0] += binomial(nrHaplotypes - 1, k) * val;
-      }
-    }
-  }
+  // private void computeUpperTreeLengths() {
+  //   upperTreeEmissions = new double[][](T, nrHaplotypes - 1);
+  //   foreach(a; 0 .. T) {
+  //     upperTreeEmissions[a][] = 0.0;
+  //     auto t = timeIntervals.meanTimeWithLambda(a, coal.getTotalMarginalLambda(a));
+  //     foreach(k; 1 .. nrHaplotypes - 1) {
+  //       auto val = mutationTreeLength(t, nrHaplotypes - 1, k);
+  //       upperTreeEmissions[a][k] = val;
+  //       upperTreeEmissions[a][0] += binomial(nrHaplotypes - 1, k) * val;
+  //     }
+  //   }
+  // }
 
   private void computeEquilibriumTreeLengths() {
     equilibriumTreeLengths = new double[nrHaplotypes];
@@ -208,12 +208,10 @@ class EmissionRate {
   
   double symmetricEmissionProb(int emissionId, size_t timeIndex, size_t i_tTot) const {
     auto t = timeIntervals.meanTimeWithLambda(timeIndex, coal.getTotalMarginalLambda(timeIndex));
-    double tTot = equilibriumTreeLengths[0];
     double tLeaf = tTotIntervals.meanTime(i_tTot, 2);
     if(nrHaplotypes * t > tLeaf)
       tLeaf = nrHaplotypes * t;
-    if(tLeaf > tTot)
-      tTot = tLeaf;
+    double tTot = equilibriumTreeLengths[0] - nrHaplotypes * (equilibriumTreeLengths[1] + equilibriumTreeLengths[nrHaplotypes - 1]) + tLeaf;
     
     if(emissionId < 0)
       return 0.0;
@@ -232,14 +230,12 @@ class EmissionRate {
   
   double directedEmissionProb(int emissionId, size_t timeIndex, size_t i_tTot) const {
     auto t = timeIntervals.meanTimeWithLambda(timeIndex, coal.getTotalMarginalLambda(timeIndex));
-    double tTot = equilibriumTreeLengths[0];
     double tLeaf = tTotIntervals.meanTime(i_tTot, 2);
     if(nrHaplotypes * t > tLeaf)
       tLeaf = nrHaplotypes * t;
-    if(tLeaf > tTot)
-      tTot = tLeaf;
+    double tTot = equilibriumTreeLengths[0] - nrHaplotypes * equilibriumTreeLengths[1] + tLeaf;
     
-    if(emissionId < 0 )
+    if(emissionId < 0)
       return 0.0;
     if(emissionId == 0)
       return exp(-mu * tTot);
@@ -248,7 +244,7 @@ class EmissionRate {
     if(emissionId < nrHaplotypes)
       return (1.0 - exp(-mu * tTot)) * equilibriumTreeLengths[emissionId] / tTot;
     else {
-      auto freq = emissionId - nrHaplotypes + 1;
+      auto freq = emissionId - cast(int)nrHaplotypes + 1;
       if(freq == 1)
         return (1.0 - exp(-mu * tTot)) * (tLeaf - 2.0 * t) / (nrHaplotypes - 2.0) / tTot;
       else

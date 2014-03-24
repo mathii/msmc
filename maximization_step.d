@@ -226,8 +226,7 @@ class MinFunc {
       );
     }
     foreach(i, a; alleleCounts)
-      // if(i != 1)
-        ret += cast(double)a * log(params.emissionRate.equilibriumEmissionProb(cast(int)i));
+      ret += cast(double)a * log(params.emissionRate.equilibriumEmissionProb(cast(int)i));
     return ret;
   }
 }
