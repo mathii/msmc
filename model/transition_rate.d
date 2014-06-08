@@ -25,91 +25,82 @@ import std.exception;
 import std.parallelism;
 import std.range;
 import model.time_intervals;
-import model.triple_index_marginal;
-import model.coalescence_rate;
-import model.rate_integrator;
 
 class TransitionRate {
   double rho;
   const TimeIntervals timeIntervals;
-  const PiecewiseConstantCoalescenceRate coal;
-  const MarginalTripleIndex marginalIndex;
-  private CoalescenceRateIntegrator coalIntegrator;
+  const double[] lambdaVec;
+  size_t nrTimeIntervals;
 
   private double[] transitionProbabilitiesQ1;
   private double[][] transitionProbabilitiesQ2;
   
-  this(in MarginalTripleIndex marginalIndex, in PiecewiseConstantCoalescenceRate coal, in TimeIntervals timeIntervals, double rho) {
+  this(in TimeIntervals timeIntervals, double rho, in double[] lambdaVec) {
     enforce(rho > 0.0, "need positive recombination rate");
-    this.coal = coal;
     this.timeIntervals = timeIntervals;
+    this.nrTimeIntervals = timeIntervals.nrIntervals;
     this.rho = rho;
-    this.marginalIndex = marginalIndex;
-    coalIntegrator = new CoalescenceRateIntegrator(timeIntervals, coal);
+    this.lambdaVec = lambdaVec;
     fillTransitionProbabilitiesParallel();
     // fillTransitionProbabilitiesSingleThread();
   }
   
+  private double integrateLambda(double from, double to, size_t fromIndex, size_t toIndex) const {
+    double sum = 0.0;
+    if(fromIndex == toIndex) {
+      return exp(-(to - from) * lambdaVec[toIndex]);
+    }
+    foreach(kappa; fromIndex + 1 .. toIndex) {
+      sum += lambdaVec[kappa] * timeIntervals.delta(kappa);
+    }
+    
+    double ret = exp(-(timeIntervals.rightBoundary(fromIndex) - from) *
+               lambdaVec[fromIndex] - sum - (to - timeIntervals.leftBoundary(toIndex)) * lambdaVec[toIndex]);
+    return ret;
+  }
+  
   private void fillTransitionProbabilitiesSingleThread() {
-    transitionProbabilitiesQ2 = new double[][](marginalIndex.nrStates, marginalIndex.nrStates);
-    transitionProbabilitiesQ1 = new double[](marginalIndex.nrStates);
-    foreach(bv; 0 .. marginalIndex.nrMarginals) {
+    transitionProbabilitiesQ2 = new double[][](nrTimeIntervals, nrTimeIntervals);
+    transitionProbabilitiesQ1 = new double[](nrTimeIntervals);
+    foreach(b; 0 .. nrTimeIntervals) {
       auto sum = 0.0;
-      foreach(au; 0 .. marginalIndex.nrMarginals) {
-        auto aij = marginalIndex.getIndexFromMarginalIndex(au);
-        auto bkl = marginalIndex.getIndexFromMarginalIndex(bv);
-        transitionProbabilitiesQ2[au][bv] = transitionProbabilityOffDiagonal(aij, bkl);
-        sum += transitionProbabilitiesQ2[au][bv] * marginalIndex.getDegeneracyForMarginalIndex(au);
+      foreach(a; 0 .. nrTimeIntervals) {
+        transitionProbabilitiesQ2[a][b] = transitionProbabilityOffDiagonal(a, b);
+        sum += transitionProbabilitiesQ2[a][b];
       }
-      transitionProbabilitiesQ1[bv] = 1.0 - sum;
+      transitionProbabilitiesQ1[b] = 1.0 - sum;
     }
   }
 
   private void fillTransitionProbabilitiesParallel() {
-    transitionProbabilitiesQ2 = new double[][](marginalIndex.nrStates, marginalIndex.nrStates);
-    transitionProbabilitiesQ1 = new double[](marginalIndex.nrStates);
-    foreach(bv; taskPool.parallel(iota(marginalIndex.nrMarginals))) {
+    transitionProbabilitiesQ2 = new double[][](nrTimeIntervals, nrTimeIntervals);
+    transitionProbabilitiesQ1 = new double[](nrTimeIntervals);
+    foreach(b; taskPool.parallel(iota(nrTimeIntervals))) {
       auto sum = 0.0;
-      foreach(au; 0 .. marginalIndex.nrMarginals) {
-        auto aij = marginalIndex.getIndexFromMarginalIndex(au);
-        auto bkl = marginalIndex.getIndexFromMarginalIndex(bv);
-        transitionProbabilitiesQ2[au][bv] = transitionProbabilityOffDiagonal(aij, bkl);
-        sum += transitionProbabilitiesQ2[au][bv] * marginalIndex.getDegeneracyForMarginalIndex(au);
+      foreach(a; 0 .. nrTimeIntervals) {
+        transitionProbabilitiesQ2[a][b] = transitionProbabilityOffDiagonal(a, b);
+        sum += transitionProbabilitiesQ2[a][b];
       }
-      transitionProbabilitiesQ1[bv] = 1.0 - sum;
+      transitionProbabilitiesQ1[b] = 1.0 - sum;
     }
   }
   
-  private double transitionProbabilityOffDiagonal(size_t aij, size_t bkl) const {
-    auto aij_triple = marginalIndex.getTripleFromIndex(aij);
-    auto bkl_triple = marginalIndex.getTripleFromIndex(bkl);
-    auto a = aij_triple.time;
-    auto i = aij_triple.ind1;
-    auto j = aij_triple.ind2;
-    auto b = bkl_triple.time;
-    auto k = bkl_triple.ind1;
-    auto l = bkl_triple.ind2;
-    
+  private double transitionProbabilityOffDiagonal(size_t a, size_t b) const {
     double ret;
     if(a < b) {
-      ret = q2IntegralSmaller(timeIntervals.leftBoundary(a), i, j,
-                                   timeIntervals.rightBoundary(a), a, b);
+      ret = q2IntegralSmaller(timeIntervals.leftBoundary(a), timeIntervals.rightBoundary(a), a, b);
     }
     if(a > b) {
-      ret = q2IntegralGreater(timeIntervals.leftBoundary(a), i, j,
-                                   timeIntervals.rightBoundary(a), k, l, a, b);
+      ret = q2IntegralGreater(timeIntervals.leftBoundary(a), timeIntervals.rightBoundary(a), a, b);
     }
     if(a == b) {
-      ret = q2IntegralSmaller(timeIntervals.leftBoundary(a), i, j, 
-                                   timeIntervals.meanTimeWithLambda(b, coal.getTotalMarginalLambda(b)), a, b) +
-                 q2IntegralGreater(timeIntervals.meanTimeWithLambda(b, coal.getTotalMarginalLambda(b)),i, j, 
-                                   timeIntervals.rightBoundary(a), k, l, a, b);
-      
+      ret = q2IntegralSmaller(timeIntervals.leftBoundary(a), timeIntervals.meanTimeWithLambda(b, lambdaVec[b]), a, b) +
+            q2IntegralGreater(timeIntervals.meanTimeWithLambda(b, lambdaVec[b]), timeIntervals.rightBoundary(a), a, b);
     }
     return ret;
   }
   
-  private double q2IntegralSmaller(double t1, size_t i, size_t j, double t2, size_t a, size_t b) const
+  private double q2IntegralSmaller(double t1, double t2, size_t a, size_t b) const
     in {
       assert(t1 >= timeIntervals.leftBoundary(a) && t1 <= timeIntervals.rightBoundary(a));
       assert(t2 >= timeIntervals.leftBoundary(a) && t2 <= timeIntervals.rightBoundary(a));
@@ -121,60 +112,46 @@ class TransitionRate {
     foreach(g; 0 .. a) {
       foreach(pair_index; 0 .. 2) {
         auto m = pair_index == 0 ? i : j;
-        double integ = exp(-(t1 - timeIntervals.leftBoundary(a)) * 
-                           coal.getSemiMarginalLambda(a, m)) -
-                       exp(-(t2 - timeIntervals.leftBoundary(a)) * 
-                           coal.getSemiMarginalLambda(a, m));
-        integ /= coal.getSemiMarginalLambda(a, m);
-        sum += (1.0 - exp(-timeIntervals.delta(g) * coal.getSemiMarginalLambda(g, m))) *
-          coalIntegrator.integrateSemiMarginalLambda(m, timeIntervals.rightBoundary(g),
-              timeIntervals.leftBoundary(a), g + 1, a) / coal.getSemiMarginalLambda(g, m) * integ;
+        double integ = exp(-(t1 - timeIntervals.leftBoundary(a)) * lambdaVec[a]) -
+                       exp(-(t2 - timeIntervals.leftBoundary(a)) * lambdaVec[a]);
+        integ /= lambdaVec[a];
+        sum += (1.0 - exp(-timeIntervals.delta(g) * lambdaVec[g])) *
+          integrateLambda(timeIntervals.rightBoundary(g), timeIntervals.leftBoundary(a), g + 1, a) / lambdaVec[g] * integ;
       }
     }
-    foreach(pair_index; 0 .. 2) {
-      auto m = pair_index == 0 ? i : j;
-      double integ = exp(-(t1 - timeIntervals.leftBoundary(a)) * 
-                         coal.getSemiMarginalLambda(a, m)) -
-                     exp(-(t2 - timeIntervals.leftBoundary(a)) * 
-                         coal.getSemiMarginalLambda(a, m));
-      integ /= coal.getSemiMarginalLambda(a, m);
-      sum += ((t2 - t1) - integ) / coal.getSemiMarginalLambda(a, m);
-    }
+
+    auto m = pair_index == 0 ? i : j;
+    double integ = exp(-(t1 - timeIntervals.leftBoundary(a)) * lambdaVec[a]) -
+                   exp(-(t2 - timeIntervals.leftBoundary(a)) * lambdaVec[a]);
+    integ /= lambdaVec[a];
+    sum += 2.0 * ((t2 - t1) - integ) / lambdaVec[a];
     
-    double ret = (1.0 - exp(-rho * marginalIndex.nrIndividuals * meanTime)) /
-        (meanTime * marginalIndex.nrIndividuals) * coal.getLambda(a, i, j) * sum;
+    double ret = (1.0 - exp(-rho * 2 * meanTime)) / (meanTime * 2) * lambdaVec[a] * sum;
     return ret;
   }
 
-  private double q2IntegralGreater(double t1, size_t i, size_t j, double t2, size_t k, size_t l, size_t a, size_t b) const
+  private double q2IntegralGreater(double t1, double t2, size_t a, size_t b) const
     in {
       assert(t1 >= timeIntervals.leftBoundary(a) && t1 <= timeIntervals.rightBoundary(a));
       assert(t2 >= timeIntervals.leftBoundary(a) && t2 <= timeIntervals.rightBoundary(a));
       assert(t1 < t2 && t1 >= timeIntervals.meanTimeWithLambda(b, coal.getTotalMarginalLambda(b)));
     }
   body {
-    auto meanTime = timeIntervals.meanTimeWithLambda(b, coal.getTotalMarginalLambda(b));
-    double integ = coalIntegrator.integrateTotalMarginalLambda(meanTime, timeIntervals.leftBoundary(a), b, a) / 
-                   coal.getTotalMarginalLambda(a) *
-                   (exp(-(t1 - timeIntervals.leftBoundary(a)) * coal.getTotalMarginalLambda(a)) -
-                    exp(-(t2 - timeIntervals.leftBoundary(a)) * coal.getTotalMarginalLambda(a)));
+    auto meanTime = timeIntervals.meanTimeWithLambda(b, lambdaVec[b]);
+    double integ = integrateLambda(meanTime, timeIntervals.leftBoundary(a), b, a) / 
+                   lambdaVec[a] *
+                   (exp(-(t1 - timeIntervals.leftBoundary(a)) * lambdaVec[a]) -
+                    exp(-(t2 - timeIntervals.leftBoundary(a)) * lambdaVec[a]));
     double sum = 0.0;
     foreach(g; 0 .. b) {
-      foreach(pair_index; 0 .. 2) {
-        auto m = pair_index == 0 ? k : l;
-        sum += (1.0 - exp(-coal.getSemiMarginalLambda(g, m) * timeIntervals.delta(g))) / 
-               coal.getSemiMarginalLambda(g, m) * 
-               coalIntegrator.integrateSemiMarginalLambda(m, timeIntervals.rightBoundary(g), meanTime, g + 1, b);
-      }
-    }
-    foreach(pair_index; 0 .. 2) {
       auto m = pair_index == 0 ? k : l;
-      sum += (1.0 - exp(-coal.getSemiMarginalLambda(b, m) * (meanTime - timeIntervals.leftBoundary(b)))) / 
-             coal.getSemiMarginalLambda(b, m);
+      sum += 2.0 * (1.0 - exp(-lambdaVec[g] * timeIntervals.delta(g))) / lambdaVec[g] * 
+             integrateLambda(timeIntervals.rightBoundary(g), meanTime, g + 1, b);
     }
+    auto m = pair_index == 0 ? k : l;
+    sum += 2.0 * (1.0 - exp(-lambdaVec[b] * (meanTime - timeIntervals.leftBoundary(b)))) / lambdaVec[b];
       
-    double ret = integ * (1.0 - exp(-rho * marginalIndex.nrIndividuals * meanTime)) /
-          (meanTime * marginalIndex.nrIndividuals) * coal.getLambda(a, i, j) * sum;
+    double ret = integ * (1.0 - exp(-rho * 2.0 * meanTime)) / (meanTime * 2.0) * lambdaVec[a] * sum;
     
     return ret;
   }
@@ -187,37 +164,21 @@ class TransitionRate {
     return transitionProbabilitiesQ2[au][bv];
   }
   
-  double transitionProbability(size_t aij, size_t bkl) const
+  double transitionProbability(size_t a, size_t b) const
     in {
-      assert(aij < marginalIndex.nrStates && bkl < marginalIndex.nrStates);
+      assert(a < nrTimeIntervals && b < nrTimeIntervals);
     }
   body {
-    auto au = marginalIndex.getMarginalIndexFromIndex(aij);
-    auto bv = marginalIndex.getMarginalIndexFromIndex(bkl);
-    double ret = transitionProbabilitiesQ2[au][bv];
-    if(aij == bkl) {
-      ret += transitionProbabilitiesQ1[au];
+    double ret = transitionProbabilitiesQ2[a][b];
+    if(a == b) {
+      ret += transitionProbabilitiesQ1[a];
     }
     return ret;
   }
   
-  double transitionProbabilityMarginal(size_t au, size_t bv) const {
-    double ret = marginalIndex.getDegeneracyForMarginalIndex(au) * transitionProbabilitiesQ2[au][bv];
-    if(au == bv)
-      ret += transitionProbabilitiesQ1[au];
-    return ret;
-  }
-  
-  double equilibriumProbability(size_t aij) const {
-    // return 1.0 / marginalIndex.nrStates;
-    
-    auto triple = marginalIndex.getTripleFromIndex(aij);
-    auto a = triple.time;
-    auto i = triple.ind1;
-    auto j = triple.ind2;
-    return coal.getLambda(a, i, j) / coal.getTotalMarginalLambda(a) * 
-        coalIntegrator.integrateTotalMarginalLambda(0.0, timeIntervals.leftBoundary(a), 0, a) *
-        (1.0 - exp(-timeIntervals.delta(a) * coal.getTotalMarginalLambda(a)));
+  double equilibriumProbability(size_t a) const {
+    return integrateLambda(0.0, timeIntervals.leftBoundary(a), 0, a) *
+        (1.0 - exp(-timeIntervals.delta(a) * lambdaVec[a]));
   }
 }
 

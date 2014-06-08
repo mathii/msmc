@@ -147,33 +147,39 @@ class MSMC_hmm {
     have_run_forward = true;
   }
 
-  Tuple!(double[], double[][]) runBackward(size_t hmmStrideWidth=1000) {
+  Tuple!(double[], double[][], double[][]) runBackward(size_t hmmStrideWidth=1000) {
     enforce(have_run_forward);
 
     auto nrMarginals = propagationCore.getMSMC.nrMarginals;
 
     auto forwardBackwardResultVec = new double[nrMarginals];
     auto forwardBackwardResultMat = new double[][](nrMarginals, nrMarginals);
+    auto forwardBackwardResultEmissions = new double[][](2, nrMarginals);
     foreach(i; 0 .. nrMarginals) {
       forwardBackwardResultVec[i] = 0.0;
       forwardBackwardResultMat[i][] = 0.0;
+      forwardBackwardResultEmissions[0][i] = 0.0;
+      forwardBackwardResultEmissions[1][i] = 0.0;
     }
     
     currentBackwardIndex = L - 1;
     auto expecVec = new double[nrMarginals];
     auto expecMat = new double[][](nrMarginals, nrMarginals);
+    auto expecEmissions = new double[][](2, nrMarginals);
     for(size_t pos = segsites[$ - 1].pos; pos > segsites[0].pos && pos <= segsites[$ - 1].pos; pos -= hmmStrideWidth) {
-      getSingleExpectation(pos, expecVec, expecMat);
+      getSingleExpectation(pos, expecVec, expecMat, expecEmissions);
       foreach(i; 0 .. nrMarginals) {
         forwardBackwardResultVec[i] += expecVec[i];
         forwardBackwardResultMat[i][] += expecMat[i][];
+        forwardBackwardResultEmissions[0][i] += expecEmissions[0][i];
+        forwardBackwardResultEmissions[1][i] += expecEmissions[1][i];
       }
     }
 
-    return tuple(forwardBackwardResultVec, forwardBackwardResultMat);
+    return tuple(forwardBackwardResultVec, forwardBackwardResultMat, forwardBackwardResultEmissions);
   }
   
-  private void getSingleExpectation(size_t pos, double[] expecVec, double[][] expecMat)
+  private void getSingleExpectation(size_t pos, double[] expecVec, double[][] expecMat, double[][] expecEmissions)
   in {
     assert(pos > segsites[0].pos, text(pos, " ", segsites[0].pos));
     assert(pos <= segsites[$ - 1].pos, text([pos, segsites[0].pos]));
@@ -192,7 +198,7 @@ class MSMC_hmm {
     getBackwardState(expectationBackwardDummy, pos);
     auto site = getSegSite(pos);
     
-    propagationCore.getTransitionExpectation(expectationForwardDummy, expectationBackwardDummy, site, expecVec, expecMat);
+    propagationCore.getTransitionExpectation(expectationForwardDummy, expectationBackwardDummy, site, expecVec, expecMat, expecEmissions);
   } 
   
   void getForwardState(State_t s, size_t pos)

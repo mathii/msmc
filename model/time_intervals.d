@@ -23,7 +23,6 @@ import std.stdio;
 import std.conv;
 import std.math;
 import std.algorithm;
-import model.triple_index_marginal;
 
 class TimeIntervals {
   const double[] boundaries;
@@ -56,33 +55,6 @@ class TimeIntervals {
 
   static double[] getLiAndDurbinBoundaries(size_t nrTimeSegments, double factor) {
     return getBoundaries(&computeLiAndDurbinBoundary, nrTimeSegments, factor);
-  }
-  
-  static TimeIntervals standardIntervals(size_t nrTimeSegments, size_t nrHaplotypes) {
-    auto mOver2 = nrHaplotypes * (nrHaplotypes - 1) / 2;
-    auto boundaries = getBoundaries(&computeQuantileBoundary, nrTimeSegments, 1.0 / mOver2);
-    return new TimeIntervals(boundaries);
-  }
-
-  static TimeIntervals standardTotalBranchlengthIntervals(size_t nrTimeSegments, size_t nrHaplotypes, bool directedEmissions) {
-    auto expectedTtot = 2.0;
-    if(directedEmissions)
-      expectedTtot += 2.0 / (nrHaplotypes - 1.0);
-    auto boundaries = getBoundaries(&computeQuantileBoundary, nrTimeSegments, expectedTtot);
-    return new TimeIntervals(boundaries);
-  }
-
-  static TimeIntervals standardSingleBranchlengthIntervals(size_t nrTimeSegments, size_t nrHaplotypes) {
-    auto expectedTtot = 1.0 / (nrHaplotypes - 1.0);
-    auto boundaries = getBoundaries(&computeQuantileBoundary, nrTimeSegments, expectedTtot);
-    return new TimeIntervals(boundaries);
-  }
-  
-  static double computeWattersonFactor(size_t nrHaplotypes) {
-    auto wattersonFactor = 0.0;
-    foreach(i; 1 .. nrHaplotypes)
-      wattersonFactor += 1.0 / i;
-    return wattersonFactor;
   }
   
   this(in double[] boundaries)
@@ -156,9 +128,8 @@ class TimeIntervals {
     }
   }
 
-  double meanTime(size_t i, size_t nrHaplotypes) const {
-    auto trivialTotalLambda = nrHaplotypes * (nrHaplotypes - 1) / 2;
-    return meanTimeWithLambda(i, trivialTotalLambda);
+  double meanTime(size_t i) const {
+    return meanTimeWithLambda(i, 1.0);
   }
   
   private double meanTimeForLowRate(size_t i, double lambda) const {
