@@ -31,87 +31,25 @@ import model.time_intervals;
 
 class SegSite_t {
   size_t pos; // rightMost position in the given segment
-  size_t[] obs;
-  // use vector to allow for alternatives (for example after ambiguous phasing)
-  // for missing data: [0]
+  size_t[] obs; // is 0 for missing, 1 for hom, and 2 for het, can have multiple obs for ambiguous phasing
   
-  size_t i_Ttot;
-  
-  this(size_t pos, in size_t[] obs, size_t i_Ttot) {
+  this(size_t pos, in size_t[] obs) {
     this.pos = pos;
     this.obs = obs.dup;
-    this.i_Ttot = i_Ttot;
   }
   
-  this(size_t pos, size_t obs, size_t i_Ttot) {
+  this(size_t pos, size_t obs) {
     this.pos = pos;
     this.obs = [obs];
-    this.i_Ttot = i_Ttot;
   }
   
   @property SegSite_t dup() const {
-    return new SegSite_t(pos, obs.dup, i_Ttot);
+    return new SegSite_t(pos, obs.dup);
   }
   
   override string toString() const {
-    return text("Segsite(", pos, ", ", obs, ", ", i_Ttot, ")");
+    return text("Segsite(", pos, ", ", obs, ")");
   }
-}
-
-string[] canonicalAlleleOrder(size_t M) {
-  // we group observations into pairs of strings of two alleles {0,1} which are synonymous with respect to exchanging 0 and 1. For example, we group together the pair [000, 111] or [101, 010]. We denote each group by the version of the string which begins with 0.
-  
-  string[] allele_order;
-  assert(M >= 2);
-  auto formatStr = format("%%0%db", M);
-  foreach(i; 0 .. 2 ^^ M) {
-    allele_order ~= format(formatStr, i);
-  }
-  return allele_order;
-}
-
-unittest {
-  writeln("test canonicalAlleleOrder");
-  assert(canonicalAlleleOrder(2) == ["00", "01", "10", "11"]);
-  assert(canonicalAlleleOrder(3) == ["000", "001", "010", "011", "100", "101", "110", "111"]);
-}
-
-string invertAllele(string allele) {
-  auto newA = new char[allele.length];
-  foreach(i, a; allele) {
-    assert(a == '0' || a == '1');
-    newA[i] = a == '0' ? '1' : '0';
-  }
-  return newA.idup;
-}
-
-unittest {
-  writeln("test invertAllele");
-  assert(invertAllele("0011") == "1100");
-  assert(invertAllele("1111") == "0000");
-  assert(invertAllele("0010") == "1101");
-  assert(invertAllele("01") == "10");
-}
-
-
-// this function converts any allele string to a sequence of 0's and 1's
-string normalizeAlleleString(string alleles) {
-  char firstAllele = alleles[0];
-  char[] ret;
-  foreach(allele; alleles) {
-    ret ~= allele == firstAllele ? '0' : '1';
-  }
-  return ret.idup;
-}
-
-unittest {
-  writeln("test normalizeAlleleString");
-  assert(normalizeAlleleString("AACC") == "0011");
-  assert(normalizeAlleleString("1101") == "0010");
-  assert(normalizeAlleleString("ACTG") == "0111");
-  assert(normalizeAlleleString("GGGG") == "0000");
-  assert(normalizeAlleleString("GG") == "00");
-  assert(normalizeAlleleString("TC") == "01");
 }
 
 void checkDataLine(const char[] line) {
@@ -154,29 +92,15 @@ unittest {
   assert(getNrHaplotypesFromFile("/tmp/nrHaplotypesTest.txt") == 2);
 }
 
-SegSite_t[] readSegSites(string filename, bool directedEmissions, size_t[] indices, bool skipAmbiguous) {
-  // format: chr, position, nr_calledSites, [alleles]
+SegSite_t[] readSegSites(string filename, size_t[2] indices, bool skipAmbiguous) {
+  // format: chr position nr_calledSites [alleles] -> tab separated
+  // [alleles]: comma-separated for ambiguous phasing
   // if no alleles are given, assume M=2 and "01"
-  // alleles can be given as comma-separated list of alternative alleles
+  // returns data for pair of haplotypes
+  // TODO: should return SegSite_t[][], with one array of SegSite_t[] for each pair of haplotypes
   
   SegSite_t[] ret;
 
-  size_t M;
-  if(indices.length == 0) {
-    M = getNrHaplotypesFromFile(filename);
-    indices = iota(M).array();
-  }
-  else {
-    M = indices.length;
-  }
-  int obsMap[string];
-  auto allele_order = canonicalAlleleOrder(M);
-  auto index = 1; // index=0 indicates missing data 
-  foreach(allele; allele_order) {
-    obsMap[allele] = index;
-    ++index;
-  }
-  
   auto f = File(filename, "r");
   long lastPos = -1;
   foreach(line; f.byLine()) {
@@ -189,7 +113,7 @@ SegSite_t[] readSegSites(string filename, bool directedEmissions, size_t[] indic
     }
     
     enforce(nrCalledSites <= pos - lastPos);
-    enforce(nrCalledSites > 0);
+    enforce(nrCalledSites > 0, "nr of called sites must be positive!");
     
     if(fields.length > 2) {
       // checking whether we have any "N" or "?" in the data, which would mark it as missing data.
@@ -207,19 +131,15 @@ SegSite_t[] readSegSites(string filename, bool directedEmissions, size_t[] indic
               break;
             }
           }
-          // if(indices.any!(a => !canFind("ACTG01", raw_allele_string[a]))) {
-          //   is_missing = true;
-          //   break;
-          // }
         }
       }
       if(is_missing) {
         if(nrCalledSites < pos - lastPos) { // missing data
-          ret ~= new SegSite_t(pos - nrCalledSites, 0, 0);
+          ret ~= new SegSite_t(pos - nrCalledSites, 0);
         }
         if(nrCalledSites > 1)
-          ret ~= new SegSite_t(pos - 1, 1, 0);
-        ret ~= new SegSite_t(pos, 0, 0);
+          ret ~= new SegSite_t(pos - 1, 1);
+        ret ~= new SegSite_t(pos, 0);
         lastPos = pos;
       }
       else {
@@ -228,27 +148,24 @@ SegSite_t[] readSegSites(string filename, bool directedEmissions, size_t[] indic
           char[] selected_allele_string;
           foreach(i; indices)
             selected_allele_string ~= allele_string[i];
-          enforce(selected_allele_string.length == M);
-          auto normalized = directedEmissions ? selected_allele_string : 
-                            normalizeAlleleString(selected_allele_string.idup);
-          allele_indices ~= obsMap[normalized];
+          allele_indices ~= selected_allele_string[0] == selected_allele_string[1] ? 1 : 2
         }
         if(nrCalledSites < pos - lastPos) { // missing data
-          ret ~= new SegSite_t(pos - nrCalledSites, 0, 0);
+          ret ~= new SegSite_t(pos - nrCalledSites, 0);
         }
         allele_indices = allele_indices.uniq().array();
         if(skipAmbiguous && allele_indices.length > 1)
-          ret ~= new SegSite_t(pos, 0, 0);
+          ret ~= new SegSite_t(pos, 0);
         else
-          ret ~= new SegSite_t(pos, allele_indices, 0);
+          ret ~= new SegSite_t(pos, allele_indices);
         lastPos = pos;
       }
     }
     else {
       if(nrCalledSites < pos - lastPos) { // missing data
-        ret ~= new SegSite_t(pos - nrCalledSites, 0, 0);
+        ret ~= new SegSite_t(pos - nrCalledSites, 0);
       }
-      ret ~= new SegSite_t(pos, 2, 0); // [2] means heterozygous
+      ret ~= new SegSite_t(pos, 2); // [2] means heterozygous
       lastPos = pos;
     }
   }

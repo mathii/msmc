@@ -291,6 +291,8 @@ class PropagationCoreNaive {
           eMat[i][a] = n;
           norm += n;
         }
+        foreach(a; 0 .. psmc.nrStates)
+          eMat[i][a] /= norm;
       }
       else
         eMat[i][] = 0.0;

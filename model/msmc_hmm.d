@@ -38,7 +38,7 @@ SegSite_t[] chop_segsites(in SegSite_t[] segsites, size_t maxDistance) {
   size_t lastPos = 0;
   foreach(segsite; segsites) {
     while(segsite.pos - lastPos > maxDistance) {
-      ret ~= new SegSite_t(lastPos + maxDistance, min(segsite.obs[0], 1), segsite.i_Ttot);
+      ret ~= new SegSite_t(lastPos + maxDistance, min(segsite.obs[0], 1));
       lastPos += maxDistance;
     }
     ret ~= segsite.dup;
@@ -124,7 +124,6 @@ class MSMC_hmm {
     propagationCore.initialState(forwardStates[0]);
     scalingFactors[0] = forwardStates[0].norm;
     forwardStates[0].scale(1.0 / scalingFactors[0]);
-    
 
     auto forwardDummyVec = propagationCore.newForwardState();
     foreach(index; 1 .. L) {
@@ -147,60 +146,40 @@ class MSMC_hmm {
     have_run_forward = true;
   }
 
-  Tuple!(double[], double[][], double[][]) runBackward(size_t hmmStrideWidth=1000) {
+  Tuple!(double[][], double[][]) runBackward(size_t hmmStrideWidth=1000) {
     enforce(have_run_forward);
 
-    auto nrMarginals = propagationCore.getMSMC.nrMarginals;
+    auto nrStates = propagationCore.getPSMC.nrStates;
 
-    auto forwardBackwardResultVec = new double[nrMarginals];
-    auto forwardBackwardResultMat = new double[][](nrMarginals, nrMarginals);
-    auto forwardBackwardResultEmissions = new double[][](2, nrMarginals);
-    foreach(i; 0 .. nrMarginals) {
-      forwardBackwardResultVec[i] = 0.0;
-      forwardBackwardResultMat[i][] = 0.0;
-      forwardBackwardResultEmissions[0][i] = 0.0;
-      forwardBackwardResultEmissions[1][i] = 0.0;
-    }
+    auto transitions = new double[][](nrStates, nrStates);
+    auto emissions = new double[][](3, nrStates)
+    foreach(i; 0 .. nrStates)
+      transitions[i][] = 0.0;
+    foreach(i; 0 .. 3)
+      emissions[i][] = 0.0;
     
     currentBackwardIndex = L - 1;
-    auto expecVec = new double[nrMarginals];
-    auto expecMat = new double[][](nrMarginals, nrMarginals);
-    auto expecEmissions = new double[][](2, nrMarginals);
+    auto transitionsDummy = new double[][](nrStates, nrStates);
+    auto emissionsDummy = new double[][](3, nrStates)
     for(size_t pos = segsites[$ - 1].pos; pos > segsites[0].pos && pos <= segsites[$ - 1].pos; pos -= hmmStrideWidth) {
-      getSingleExpectation(pos, expecVec, expecMat, expecEmissions);
-      foreach(i; 0 .. nrMarginals) {
-        forwardBackwardResultVec[i] += expecVec[i];
-        forwardBackwardResultMat[i][] += expecMat[i][];
-        forwardBackwardResultEmissions[0][i] += expecEmissions[0][i];
-        forwardBackwardResultEmissions[1][i] += expecEmissions[1][i];
-      }
+      getForwardState(expectationForwardDummy, pos - 1);
+      getBackwardState(expectationBackwardDummy, pos);
+      auto site = getSegSite(pos);
+    
+      propagationCore.getTransitionExpectation(expectationForwardDummy, expectationBackwardDummy, site, transitionsDummy);
+      
+      getForwardState(expectationForwardDummy, pos);
+      propagationCore.getEmissionExpectation(expectationForwardDummy, expectationBackwardDummy, site, emissionsDummy);
+
+      foreach(i; 0 .. nrStates)
+        transitions[i][] += transitionsDummy[i][];
+      foreach(i; 0 .. 3)
+        emissions[i][] += emissionsDummy[i][];
     }
 
-    return tuple(forwardBackwardResultVec, forwardBackwardResultMat, forwardBackwardResultEmissions);
+    return tuple(transitions, emissions);
   }
-  
-  private void getSingleExpectation(size_t pos, double[] expecVec, double[][] expecMat, double[][] expecEmissions)
-  in {
-    assert(pos > segsites[0].pos, text(pos, " ", segsites[0].pos));
-    assert(pos <= segsites[$ - 1].pos, text([pos, segsites[0].pos]));
-    assert(have_run_forward);
-  }
-  out {
-    auto sum = 0.0;
-    foreach(i; 0 .. propagationCore.getMSMC.nrMarginals) {
-      sum += reduce!"a+b"(expecMat[i]);
-      sum += expecVec[i];
-    }
-    assert(approxEqual(sum, 1.0, 1.0e-8, 0.0), text(sum));
-  }
-  body {    
-    getForwardState(expectationForwardDummy, pos - 1);
-    getBackwardState(expectationBackwardDummy, pos);
-    auto site = getSegSite(pos);
     
-    propagationCore.getTransitionExpectation(expectationForwardDummy, expectationBackwardDummy, site, expecVec, expecMat, expecEmissions);
-  } 
-  
   void getForwardState(State_t s, size_t pos)
   in {
     assert(pos >= segsites[0].pos);
@@ -245,7 +224,7 @@ class MSMC_hmm {
     if(segsites[index].pos == pos)
       return segsites[index].dup;
     else
-      return new SegSite_t(pos, min(segsites[index].obs[0], 1), segsites[index].i_Ttot);
+      return new SegSite_t(pos, min(segsites[index].obs[0], 1));
   }
   
   private size_t getRightIndexAtPos(size_t pos)
