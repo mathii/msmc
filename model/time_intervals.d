@@ -57,6 +57,11 @@ class TimeIntervals {
     return getBoundaries(&computeLiAndDurbinBoundary, nrTimeSegments, factor);
   }
   
+  static TimeIntervals standardIntervals(size_t nrTimeSegments, double factor=1.0) {
+    auto bound = TimeIntervals.getQuantileBoundaries(nrTimeSegments, factor);
+    return new TimeIntervals(bound);
+  }
+  
   this(in double[] boundaries)
   {
     enforce(validBoundaries(boundaries), text("invalid boundaries: ", boundaries));
@@ -175,7 +180,7 @@ unittest {
 
 unittest {
   writeln("test timeInterval boundaries and delta");
-  auto t = TimeIntervals.standardIntervals(10, 4);
+  auto t = TimeIntervals.standardIntervals(10, 1.0 / 6.0);
   
   assert(t.leftBoundary(0) == 0);
   assert(t.rightBoundary(9) == double.infinity);
@@ -184,7 +189,7 @@ unittest {
 
 unittest {
   writeln("test timeIntervals.findIntervalForTime");
-  auto t = TimeIntervals.standardIntervals(10, 4);
+  auto t = TimeIntervals.standardIntervals(10, 1.0 / 6.0);
   auto t1 = t.leftBoundary(4);
   auto t2 = t.rightBoundary(4);
   auto middle = (t1 + t2) / 2.0;
@@ -198,7 +203,7 @@ unittest {
 
 unittest {
   writeln("test timeIntervals.roundToFullInterval");
-  auto t = TimeIntervals.standardIntervals(10, 4);
+  auto t = TimeIntervals.standardIntervals(10, 1.0 / 6.0);
   auto t1 = t.leftBoundary(4);
   auto t2 = t.rightBoundary(4);
   
@@ -215,23 +220,8 @@ unittest {
 }
 
 unittest {
-  writeln("test timeIntervals.meanTime");
-  import model.coalescence_rate;
-  auto meanTimesTh = [0.02053010050230513,0.10097875411723184,0.2850866082677072,0.8012622730318943];
-  auto subpop_labels = [0UL, 0, 1, 1];
-  auto lambda_subpop_rates = [1, 0.1, 1, 2, 0.5, 4, 2, 1.0, 4, 1., 2, 1];
-  auto T = 4UL;
-  auto marginalIndex = new MarginalTripleIndex(T, subpop_labels);
-  auto coal = new PiecewiseConstantCoalescenceRate(marginalIndex, lambda_subpop_rates);
-  auto boundaries = TimeIntervals.getLiAndDurbinBoundaries(T, 1.0 / 6.0);
-  auto timeIntervals = new TimeIntervals(boundaries);
-  foreach(i; 0 .. T)
-    assert(approxEqual(timeIntervals.meanTimeWithLambda(i, coal.getTotalMarginalLambda(i)), meanTimesTh[i], 1.0e-8, 0.0));
-}
-
-unittest {
   writeln("test one time interval");
-  auto t = TimeIntervals.standardIntervals(1, 2);
+  auto t = TimeIntervals.standardIntervals(1, 1.0);
   assert(t.leftBoundary(0) == 0);
   assert(t.rightBoundary(0) == double.infinity);
   assert(t.delta(0) == double.infinity);

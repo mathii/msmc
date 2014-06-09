@@ -24,62 +24,74 @@ import std.conv;
 import std.file;
 import std.stdio;
 import std.string;
-import model.triple_index_marginal;
+import std.math;
+import std.algorithm;
 import model.time_intervals;
-import model.emission_rate;
 import model.transition_rate;
-import model.coalescence_rate;
 
 class PSMCmodel {
   const TransitionRate transitionRate;
   const TimeIntervals timeIntervals;
   const double[] lambdaVec;
+  double mutationRate;
 
   this(double mutationRate, double recombinationRate, in double[] lambdaVec, in double[] timeBoundaries) {
     timeIntervals = new TimeIntervals(timeBoundaries ~ [double.infinity]);
+    this.mutationRate = mutationRate;
     this.lambdaVec = lambdaVec;
-    transitionRate = new TransitionRate(marginalIndex, coal, timeIntervals, recombinationRate);
+    transitionRate = new TransitionRate(timeIntervals, recombinationRate, lambdaVec);
   }
 
   override string toString() const {
-    return format("<MSMCmodel: mutationRate=%s, recombinationRate=%s, lambdaVec=%s, nrTimeIntervals=%s", mutationRate, recombinationRate, lambdaVec, nrTimeIntervals);
+    return format("<MSMCmodel: mutationRate=%s, recombinationRate=%s, lambdaVec=%s, nrTimeIntervals=%s", mutationRate, recombinationRate, lambdaVec, timeIntervals.nrIntervals);
   }
   
-  static MSMCmodel withTrivialLambda(double mutationRate, double recombinationRate, size_t nrTimeIntervals) {
-    auto lambdaVec = double[nrTimeIntervals];
+  static PSMCmodel withTrivialLambda(double mutationRate, double recombinationRate, size_t nrTimeIntervals) {
+    auto lambdaVec = new double[nrTimeIntervals];
     lambdaVec[] = 1.0;
-    return new MSMCmodel(mutationRate, recombinationRate, lambdaVec, nrTimeIntervals);
+    auto boundaries = TimeIntervals.getQuantileBoundaries(nrTimeIntervals, 1.0);
+    return new PSMCmodel(mutationRate, recombinationRate, lambdaVec, boundaries[0 .. $ - 1]);
   }
   
-  double emissionProb(char[2] alleles, size_t timeIndex) {
-    if(alleles[0] == alleles[1])
-      return exp(-2.0 * mu * t);
+  double emissionProb(size_t id, size_t timeIndex) const {
+    auto t = timeIntervals.meanTimeWithLambda(timeIndex, lambdaVec[timeIndex]);
+    switch(id) {
+      case 0:
+      return 1.0;
+      case 1:
+      return exp(-2.0 * mutationRate * t);
+      case 2:
+      return 1.0 - exp(-2.0 * mutationRate * t);
+      default:
+      assert(false);
+    }
+  }
+  
+  double emissionProb(char[2] alleles, size_t timeIndex) const {
+    if("ACTG01".canFind(alleles[0]) && "ACTG01".canFind(alleles[1])) {
+      if(alleles[0] == alleles[1])
+        return emissionProb(1UL, timeIndex);
+      else
+        return emissionProb(2UL, timeIndex);
+    }
     else
-      return 1.0 - exp(-2.0 * mu * t);
+      return emissionProb(0UL, timeIndex);
   }
   
-  double transitionProb(size_t a, size_t b) {
+  double transitionProb(size_t a, size_t b) const {
     return transitionRate.transitionProbability(a, b);
   }
   
-  double equilibriumProb(size_t a) {
+  double equilibriumProb(size_t a) const {
     return transitionRate.equilibriumProbability(a);
   }
 
   @property size_t nrStates() const {
-    return marginalIndex.nrStates;
-  }
-  
-  @property double mutationRate() const {
-    return emissionRate.mu;
+    return timeIntervals.nrIntervals;
   }
   
   @property double recombinationRate() const {
     return transitionRate.rho;
   }
-  
-  @property double[] lambdaVec() const {
-    return lambdaVec.dup;
-  }
-  
+    
 }

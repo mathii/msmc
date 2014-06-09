@@ -20,7 +20,6 @@
 module model.stateVec;
 import std.conv;
 import std.algorithm;
-import model.gsl_matrix_vector;
 import model.stateVecAllocator;
 
 class State_t {

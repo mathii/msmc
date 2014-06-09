@@ -148,7 +148,7 @@ SegSite_t[] readSegSites(string filename, size_t[2] indices, bool skipAmbiguous)
           char[] selected_allele_string;
           foreach(i; indices)
             selected_allele_string ~= allele_string[i];
-          allele_indices ~= selected_allele_string[0] == selected_allele_string[1] ? 1 : 2
+          allele_indices ~= selected_allele_string[0] == selected_allele_string[1] ? 1 : 2;
         }
         if(nrCalledSites < pos - lastPos) { // missing data
           ret ~= new SegSite_t(pos - nrCalledSites, 0);
@@ -186,13 +186,12 @@ unittest {
   tmp_file.writeln("1 1000012 4 ACCG,TTGA");
   tmp_file.close();
 
-  auto segsites = readSegSites("/tmp/msmc_data_unittest.tmp", false, [], false);
-  assert(segsites[0].pos == 1000000 && segsites[0].obs == [4]);
+  auto segsites = readSegSites("/tmp/msmc_data_unittest.tmp", [0UL, 1], false);
+  assert(segsites[0].pos == 1000000 && segsites[0].obs == [1]);
   assert(segsites[1].pos == 1000002 && segsites[1].obs == [0]);
   assert(segsites[3].pos == 1000005 && segsites[3].obs == [0]);
-  assert(segsites[4].pos == 1000007 && segsites[4].obs == [1]);
-  assert(segsites[5].pos == 1000008 && segsites[5].obs == [0]);
-  assert(segsites[6].pos == 1000012 && segsites[6].obs == [8, 4]);
+  assert(segsites[4].pos == 1000008 && segsites[4].obs == [2]);
+  assert(segsites[5].pos == 1000012 && segsites[5].obs == [2, 1]);
   
 }
 
@@ -205,7 +204,7 @@ unittest {
   tmp_file.writeln("1 1000012 4 AA,TT");
   tmp_file.close();
 
-  auto segsites = readSegSites("/tmp/msmc_data_unittest.tmp", false, [], false);
+  auto segsites = readSegSites("/tmp/msmc_data_unittest.tmp", [0UL, 1], false);
   assert(segsites[0].pos == 1000000 && segsites[0].obs == [2]);
   assert(segsites[1].pos == 1000002 && segsites[1].obs == [0]);
   assert(segsites[3].pos == 1000005 && segsites[3].obs == [0]);

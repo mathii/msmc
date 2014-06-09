@@ -28,7 +28,6 @@ import std.typecons;
 import std.random;
 import std.exception;
 import model.data;
-import model.gsl_matrix_vector;
 import model.propagation_core;
 import model.stateVec;
 import model.stateVecAllocator;
@@ -50,13 +49,13 @@ SegSite_t[] chop_segsites(in SegSite_t[] segsites, size_t maxDistance) {
 unittest {
   writeln("testing chop_sites");
   auto data = [
-    new SegSite_t(400, [3], 0),
-    new SegSite_t(3600, [0], 0), // missing data
-    new SegSite_t(5000, [2], 0)
+    new SegSite_t(400, [2]),
+    new SegSite_t(3600, [0]), // missing data
+    new SegSite_t(5000, [2])
   ];
   auto ret = chop_segsites(data, 1000);
   assert(ret[0].pos == 400);
-  assert(ret[0].obs == [3]);
+  assert(ret[0].obs == [2]);
   assert(ret[1].pos == 1400);
   assert(ret[1].obs == [0]);
   assert(ret[3].pos == 3400);
@@ -152,7 +151,7 @@ class MSMC_hmm {
     auto nrStates = propagationCore.getPSMC.nrStates;
 
     auto transitions = new double[][](nrStates, nrStates);
-    auto emissions = new double[][](3, nrStates)
+    auto emissions = new double[][](3, nrStates);
     foreach(i; 0 .. nrStates)
       transitions[i][] = 0.0;
     foreach(i; 0 .. 3)
@@ -160,7 +159,7 @@ class MSMC_hmm {
     
     currentBackwardIndex = L - 1;
     auto transitionsDummy = new double[][](nrStates, nrStates);
-    auto emissionsDummy = new double[][](3, nrStates)
+    auto emissionsDummy = new double[][](3, nrStates);
     for(size_t pos = segsites[$ - 1].pos; pos > segsites[0].pos && pos <= segsites[$ - 1].pos; pos -= hmmStrideWidth) {
       getForwardState(expectationForwardDummy, pos - 1);
       getBackwardState(expectationBackwardDummy, pos);
@@ -287,91 +286,31 @@ class MSMC_hmm {
 
 unittest {
   writeln("testing MSMC_hmm");
-  import model.propagation_core_naiveImpl;
-  import model.propagation_core_fastImpl;
-  import model.msmc_model;
+  import model.psmc_model;
   
-  auto lambdaVec = new double[30];
-  lambdaVec[] = 1.0;
-  auto params = new MSMCmodel(0.01, 0.001, [0U, 0, 1, 1], lambdaVec, 10, 4, false);
+  auto T = 10UL;
+  auto params = PSMCmodel.withTrivialLambda(0.01, 0.001, T);
   auto lvl = 1.0e-8;
   
-  auto propagationCoreNaive = new PropagationCoreNaive(params, 100);
-  auto propagationCoreFast = new PropagationCoreFast(params, 100);
+  auto propagationCore = new PropagationCore(params, 100);
 
-  auto nrS = propagationCoreFast.getMSMC.nrStates;
+  auto nrS = propagationCore.getPSMC.nrStates;
   
-  auto data = readSegSites("model/hmm_testData.txt", false, [], false);
+  auto data = readSegSites("model/hmm_testData.txt", [0UL, 1], false);
   
-  auto msmc_hmm_fast = new MSMC_hmm(propagationCoreFast, data);
-  auto msmc_hmm_naive = new MSMC_hmm(propagationCoreNaive, data);
-  msmc_hmm_fast.runForward();
-  msmc_hmm_naive.runForward();
+  auto msmc_hmm = new MSMC_hmm(propagationCore, data);
+  msmc_hmm.runForward();
   
-  
-  auto L = msmc_hmm_naive.L;
-  
-  foreach(pos; 0 .. msmc_hmm_fast.L) {
-    assert(approxEqual(msmc_hmm_fast.scalingFactors[pos],
-                       msmc_hmm_naive.scalingFactors[pos], lvl, 0.0),
-           text([pos, msmc_hmm_fast.scalingFactors[pos], 
-                msmc_hmm_naive.scalingFactors[pos]]));
-  }
+  auto L = msmc_hmm.L;
   
   for(auto pos = L - 1; pos >= 0 && pos < L; --pos) {
-    foreach(aij; 0 .. nrS) {
-      assert(
-          approxEqual(
-              msmc_hmm_naive.forwardStates[pos].vec[aij],
-              msmc_hmm_fast.forwardStates[pos].vec[aij],
-              lvl, 0.0
-          ),
-          text(
-              [msmc_hmm_naive.forwardStates[pos].vec[aij],
-              msmc_hmm_fast.forwardStates[pos].vec[aij]]
-          )
-      );
-      assert(
-          approxEqual(
-              msmc_hmm_naive.getBackwardStateAtIndex(pos).vec[aij],
-              msmc_hmm_fast.getBackwardStateAtIndex(pos).vec[aij],
-              lvl, 0.0
-          ),
-          text(
-              [pos, msmc_hmm_naive.getBackwardStateAtIndex(pos).vec[aij],
-              msmc_hmm_fast.getBackwardStateAtIndex(pos).vec[aij]]
-          )
-      );
-    }
-  }
-  for(auto pos = L - 1; pos >= 0 && pos < L; --pos) {
-    auto sum_f = 0.0;
-    auto sum_n = 0.0;
-    foreach(aij; 0 .. propagationCoreFast.getMSMC.nrStates) {
-      sum_f += msmc_hmm_fast.forwardStates[pos].vec[aij] *
-        msmc_hmm_fast.getBackwardStateAtIndex(pos).vec[aij] * 
-        msmc_hmm_fast.scalingFactors[pos];
-      sum_n += msmc_hmm_naive.forwardStates[pos].vec[aij] *
-        msmc_hmm_naive.getBackwardStateAtIndex(pos).vec[aij] * 
-        msmc_hmm_naive.scalingFactors[pos];
-    }
+    auto sum = 0.0;
+    foreach(a; 0 .. T)
+      sum += msmc_hmm.forwardStates[pos].vec[a] *
+        msmc_hmm.getBackwardStateAtIndex(pos).vec[a] * 
+        msmc_hmm.scalingFactors[pos];
     
-    assert(approxEqual(sum_f, 1.0, lvl, 0.0), text(sum_f));
-    assert(approxEqual(sum_n, 1.0, lvl, 0.0), text(sum_n));
-  }
-  auto expec = msmc_hmm_fast.runBackward();
-  auto expec_n = msmc_hmm_naive.runBackward();
-  foreach(au; 0 .. params.nrMarginals) {
-    assert(
-        approxEqual(expec[0][au], expec_n[0][au], lvl, 0.0),
-        text([expec[0][au], expec_n[0][au]])
-    );
-    foreach(bv; 0 .. params.nrMarginals) {
-      assert(
-          approxEqual(expec[1][au][bv], expec_n[1][au][bv], lvl, lvl),
-          text([expec[1][au][bv], expec_n[1][au][bv]])
-      );
-    }
+    assert(approxEqual(sum, 1.0, lvl, 0.0), text(sum));
   }
 }
 
