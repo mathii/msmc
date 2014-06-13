@@ -119,27 +119,25 @@ SegSite_t[] readSegSites(string filename, size_t[2] indices, bool skipAmbiguous)
       // checking whether we have any "N" or "?" in the data, which would mark it as missing data.
       auto is_missing = false;
       auto raw_allele_strings = split(fields[3], ",");
-      if(!is_missing) {
-        foreach(raw_allele_string; raw_allele_strings) {
-          foreach(i; indices) {
-            if(i >= raw_allele_string.length) {
-              stderr.writeln("Haplotype index exceeds number of haplotypes in datafile");
-              exit(0);
-            }
-            if(!canFind("ACTG01", raw_allele_string[i])) {
-              is_missing = true;
-              break;
-            }
+      foreach(raw_allele_string; raw_allele_strings) {
+        foreach(i; indices) {
+          if(i >= raw_allele_string.length) {
+            stderr.writeln("Haplotype index exceeds number of haplotypes in datafile");
+            exit(0);
+          }
+          if(!canFind("ACTG01", raw_allele_string[i])) {
+            is_missing = true;
+            break;
           }
         }
       }
       if(is_missing) {
         if(nrCalledSites < pos - lastPos) { // missing data
-          ret ~= new SegSite_t(pos - nrCalledSites, 0);
+          ret ~= new SegSite_t(pos - nrCalledSites, 0UL);
         }
         if(nrCalledSites > 1)
-          ret ~= new SegSite_t(pos - 1, 1);
-        ret ~= new SegSite_t(pos, 0);
+          ret ~= new SegSite_t(pos - 1, 1UL);
+        ret ~= new SegSite_t(pos, 0UL);
         lastPos = pos;
       }
       else {
@@ -148,14 +146,14 @@ SegSite_t[] readSegSites(string filename, size_t[2] indices, bool skipAmbiguous)
           char[] selected_allele_string;
           foreach(i; indices)
             selected_allele_string ~= allele_string[i];
-          allele_indices ~= selected_allele_string[0] == selected_allele_string[1] ? 1 : 2;
+          allele_indices ~= selected_allele_string[0] == selected_allele_string[1] ? 1UL : 2UL;
         }
         if(nrCalledSites < pos - lastPos) { // missing data
-          ret ~= new SegSite_t(pos - nrCalledSites, 0);
+          ret ~= new SegSite_t(pos - nrCalledSites, 0UL);
         }
         allele_indices = allele_indices.uniq().array();
         if(skipAmbiguous && allele_indices.length > 1)
-          ret ~= new SegSite_t(pos, 0);
+          ret ~= new SegSite_t(pos, 0UL);
         else
           ret ~= new SegSite_t(pos, allele_indices);
         lastPos = pos;
@@ -163,9 +161,9 @@ SegSite_t[] readSegSites(string filename, size_t[2] indices, bool skipAmbiguous)
     }
     else {
       if(nrCalledSites < pos - lastPos) { // missing data
-        ret ~= new SegSite_t(pos - nrCalledSites, 0);
+        ret ~= new SegSite_t(pos - nrCalledSites, 0UL);
       }
-      ret ~= new SegSite_t(pos, 2); // [2] means heterozygous
+      ret ~= new SegSite_t(pos, 2UL);
       lastPos = pos;
     }
   }
@@ -214,8 +212,8 @@ unittest {
   
 }
 
-double getTheta(in SegSite_t[][] data, size_t nrHaplotypes) {
-  size_t nr_segsites; 
+double getTheta(in SegSite_t[][] data) {
+  size_t nr_hets; 
   size_t called_sites;
   foreach(d; data) {
     size_t lastPos = 0;
@@ -224,11 +222,11 @@ double getTheta(in SegSite_t[][] data, size_t nrHaplotypes) {
         if(lastPos > 0)
           called_sites += dd.pos - lastPos;
         if(dd.obs.any!(o => o > 1))
-          nr_segsites += 1;
+          nr_hets += 1;
       }
       lastPos = dd.pos;
     }
   }
-  auto watterson = iota(1, nrHaplotypes).map!"1.0 / a"().reduce!"a+b"();
-  return cast(double)nr_segsites / cast(double)called_sites / watterson;
+  
+  return cast(double)nr_hets / cast(double)called_sites;
 }

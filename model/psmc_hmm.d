@@ -17,7 +17,7 @@
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
  
-module model.msmc_hmm;
+module model.psmc_hmm;
 import std.stdio;
 import std.math;
 import std.string;
@@ -66,7 +66,7 @@ unittest {
   assert(ret[6].obs == [2]);
 }
 
-class MSMC_hmm {
+class PSMC_hmm {
 
   size_t L;
   size_t maxDistance;
@@ -145,21 +145,21 @@ class MSMC_hmm {
     have_run_forward = true;
   }
 
-  Tuple!(double[][], double[][]) runBackward(size_t hmmStrideWidth=1000) {
+  Tuple!(double[][], double[][2]) runBackward(size_t hmmStrideWidth=1000) {
     enforce(have_run_forward);
 
     auto nrStates = propagationCore.getPSMC.nrStates;
 
     auto transitions = new double[][](nrStates, nrStates);
-    auto emissions = new double[][](3, nrStates);
+    double[][2] emissions = [new double[nrStates], new double[nrStates]];
     foreach(i; 0 .. nrStates)
       transitions[i][] = 0.0;
-    foreach(i; 0 .. 3)
+    foreach(i; 0 .. 2)
       emissions[i][] = 0.0;
     
     currentBackwardIndex = L - 1;
     auto transitionsDummy = new double[][](nrStates, nrStates);
-    auto emissionsDummy = new double[][](3, nrStates);
+    double[][2] emissionsDummy = [new double[nrStates], new double[nrStates]];
     for(size_t pos = segsites[$ - 1].pos; pos > segsites[0].pos && pos <= segsites[$ - 1].pos; pos -= hmmStrideWidth) {
       getForwardState(expectationForwardDummy, pos - 1);
       getBackwardState(expectationBackwardDummy, pos);
@@ -172,7 +172,7 @@ class MSMC_hmm {
 
       foreach(i; 0 .. nrStates)
         transitions[i][] += transitionsDummy[i][];
-      foreach(i; 0 .. 3)
+      foreach(i; 0 .. 2)
         emissions[i][] += emissionsDummy[i][];
     }
 
@@ -289,7 +289,7 @@ unittest {
   import model.psmc_model;
   
   auto T = 10UL;
-  auto params = PSMCmodel.withTrivialLambda(0.01, 0.001, T);
+  auto params = new PSMCmodel(0.01, 0.001, T);
   auto lvl = 1.0e-8;
   
   auto propagationCore = new PropagationCore(params, 100);
@@ -298,17 +298,17 @@ unittest {
   
   auto data = readSegSites("model/hmm_testData.txt", [0UL, 1], false);
   
-  auto msmc_hmm = new MSMC_hmm(propagationCore, data);
-  msmc_hmm.runForward();
+  auto psmc_hmm = new PSMC_hmm(propagationCore, data);
+  psmc_hmm.runForward();
   
-  auto L = msmc_hmm.L;
+  auto L = psmc_hmm.L;
   
   for(auto pos = L - 1; pos >= 0 && pos < L; --pos) {
     auto sum = 0.0;
     foreach(a; 0 .. T)
-      sum += msmc_hmm.forwardStates[pos].vec[a] *
-        msmc_hmm.getBackwardStateAtIndex(pos).vec[a] * 
-        msmc_hmm.scalingFactors[pos];
+      sum += psmc_hmm.forwardStates[pos].vec[a] *
+        psmc_hmm.getBackwardStateAtIndex(pos).vec[a] * 
+        psmc_hmm.scalingFactors[pos];
     
     assert(approxEqual(sum, 1.0, lvl, 0.0), text(sum));
   }

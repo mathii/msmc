@@ -249,21 +249,21 @@ class PropagationCore {
         eMat[a][b_] = f.vec[b_] * transitionMatrix[a][b_] * b.vec[a] * fullE(to_segsite, a);
   }
 
-  void getEmissionExpectation(State_t f, State_t b, in SegSite_t to_segsite, double[][] eMat) const
+  void getEmissionExpectation(State_t f, State_t b, in SegSite_t to_segsite, double[][2] eMat) const
   {
-    foreach(i; 0 .. 2) {
-      if(to_segsite.obs.canFind(i + 1)) {
+    eMat[0][] = 0.0;
+    eMat[1][] = 0.0;
+    foreach(o; to_segsite.obs) {
+      if(o > 0) {
         auto norm = 0.0;
         foreach(a; 0 .. psmc.nrStates) {
           auto n = f.vec[a] * b.vec[a] / cast(double)(to_segsite.obs.length);
-          eMat[i][a] = n;
+          eMat[o - 1][a] = n;
           norm += n;
         }
         foreach(a; 0 .. psmc.nrStates)
-          eMat[i][a] /= norm;
+          eMat[o - 1][a] /= norm;
       }
-      else
-        eMat[i][] = 0.0;
     }
   }
   
@@ -273,3 +273,71 @@ class PropagationCore {
   
 }
 
+unittest {
+  import std.math;
+  writeln("testing propagationCoreFast and propagationCoreNaive propagateForward ");
+  auto psmc = new PSMCmodel(0.01, 0.001, 10);
+  auto lvl = 1.0e-8;
+  auto dist = 10;
+  auto propagationCore = new PropagationCore(psmc, dist);
+  
+  auto f = propagationCore.newForwardState();
+  auto fNext = propagationCore.newForwardState();
+  auto dummy_site = new SegSite_t(1, 1);
+  propagationCore.setState(f, 1.0, dummy_site);
+  foreach(i; 0 .. dist) {
+    auto left_site = new SegSite_t(1 + i, 1);
+    auto right_site = new SegSite_t(1 + i + 1, 1);
+    propagationCore.propagateSingleForward(f, fNext, left_site, right_site);
+    fNext.copy_into(f);
+  }
+  auto fSingles = propagationCore.newForwardState();
+  f.copy_into(fSingles);
+  propagationCore.setState(f, 1.0, dummy_site);
+  auto left_site = new SegSite_t(1, 1);
+  auto right_site = new SegSite_t(1 + dist, 1);
+  propagationCore.propagateMultiForward(f, fNext, left_site, right_site);
+  auto fSinglesA = fSingles.vec;
+  auto fNextA = fNext.vec;
+  foreach(aij; 0 .. psmc.nrStates) {
+    assert(
+        approxEqual(fNextA[aij], fSinglesA[aij], lvl, 0.0),
+        text(fNext, " ", fSingles)
+    );
+  }
+}
+  
+unittest {
+  import std.math;
+  writeln("testing propagationCoreFast and propagationCoreNaive propagateBackward ");
+  import model.propagation_core;
+  auto psmc = new PSMCmodel(0.01, 0.001, 10);
+  auto lvl = 1.0e-8;
+  auto dist = 10;
+  auto propagationCore = new PropagationCore(psmc, dist);
+  
+  auto b = propagationCore.newBackwardState();
+  auto bNext = propagationCore.newBackwardState();
+  auto dummy_site = new SegSite_t(dist + 1, 1);
+  propagationCore.setState(b, 1.0, dummy_site);
+  foreach(i; 0 .. dist) {
+    auto left_site = new SegSite_t(dist - i, 1);
+    auto right_site = new SegSite_t(dist + 1 - i, 1);
+    propagationCore.propagateSingleBackward(b, bNext, right_site, left_site);
+    bNext.copy_into(b);
+  }
+  auto bSingles = propagationCore.newBackwardState();
+  b.copy_into(bSingles);
+  propagationCore.setState(b, 1.0, dummy_site);
+  auto left_site = new SegSite_t(1, 1);
+  auto right_site = new SegSite_t(dist + 1, 1);
+  propagationCore.propagateMultiBackward(b, bNext, right_site, left_site);
+  auto bSinglesA = bSingles.vec;
+  auto bNextA = bNext.vec;
+  foreach(aij; 0 .. psmc.nrStates) {
+    assert(
+        approxEqual(bNextA[aij], bSinglesA[aij], lvl, 0.0),
+        text(bNext, ", ", bSingles)
+    );
+  }
+}

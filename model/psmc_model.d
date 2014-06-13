@@ -35,22 +35,31 @@ class PSMCmodel {
   const double[] lambdaVec;
   double mutationRate;
 
-  this(double mutationRate, double recombinationRate, in double[] lambdaVec, in double[] timeBoundaries) {
-    timeIntervals = new TimeIntervals(timeBoundaries ~ [double.infinity]);
+  this(double mutationRate, double recombinationRate, in double[] lambdaVec, in TimeIntervals timeIntervals) {
+    this.timeIntervals = timeIntervals;
     this.mutationRate = mutationRate;
     this.lambdaVec = lambdaVec;
     transitionRate = new TransitionRate(timeIntervals, recombinationRate, lambdaVec);
   }
 
-  override string toString() const {
-    return format("<MSMCmodel: mutationRate=%s, recombinationRate=%s, lambdaVec=%s, nrTimeIntervals=%s", mutationRate, recombinationRate, lambdaVec, timeIntervals.nrIntervals);
+  this(double mutationRate, double recombinationRate, in TimeIntervals timeIntervals) {
+    auto lambdaVec_ = new double[timeIntervals.nrIntervals];
+    lambdaVec_[] = 1.0;
+    this(mutationRate, recombinationRate, lambdaVec_, timeIntervals);
+  }
+
+  this(double mutationRate, double recombinationRate, in double[] lambdaVec, size_t nrTimeIntervals) {
+    auto timeIntervals_ = TimeIntervals.standardIntervals(nrTimeIntervals);
+    this(mutationRate, recombinationRate, lambdaVec, timeIntervals_);
   }
   
-  static PSMCmodel withTrivialLambda(double mutationRate, double recombinationRate, size_t nrTimeIntervals) {
-    auto lambdaVec = new double[nrTimeIntervals];
-    lambdaVec[] = 1.0;
-    auto boundaries = TimeIntervals.getQuantileBoundaries(nrTimeIntervals, 1.0);
-    return new PSMCmodel(mutationRate, recombinationRate, lambdaVec, boundaries[0 .. $ - 1]);
+  this(double mutationRate, double recombinationRate, size_t nrTimeIntervals) {
+    auto timeIntervals_ = TimeIntervals.standardIntervals(nrTimeIntervals);
+    this(mutationRate, recombinationRate, timeIntervals_);
+  }
+
+  override string toString() const {
+    return format("<MSMCmodel: mutationRate=%s, recombinationRate=%s, lambdaVec=%s, nrTimeIntervals=%s", mutationRate, recombinationRate, lambdaVec, timeIntervals.nrIntervals);
   }
   
   double emissionProb(size_t id, size_t timeIndex) const {

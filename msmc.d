@@ -37,6 +37,7 @@ import expectation_step;
 import maximization_step;
 import logger;
 import branchlength;
+import model.time_intervals;
 import model.triple_index_marginal;
 
 auto maxIterations = 20UL;
@@ -240,12 +241,13 @@ void inferDefaultSubpopLabels(size_t nrHaplotypes) {
 
 void run() {
   MSMCmodel params;
-  if(lambdaVec.length > 0)
-    params = new MSMCmodel(mutationRate, recombinationRate, subpopLabels, lambdaVec, nrTimeSegments, nrTtotSegments, 
-                           directedEmissions);
-  else
-    params = MSMCmodel.withTrivialLambda(mutationRate, recombinationRate, subpopLabels, nrTimeSegments, nrTtotSegments,
-                                         directedEmissions);
+  if(lambdaVec.length == 0)
+    lambdaVec = new double[nrTimeSegments];
+  lambdaVec[] = 1.0;
+  auto nrHaplotypes = subpopLabels.length;
+  auto timeIntervals = TimeIntervals.standardIntervals(nrTimeSegments, nrHaplotypes);
+  params = new MSMCmodel(mutationRate, recombinationRate, [0UL, 0], lambdaVec, timeIntervals.boundaries[0..$-1], 
+                         nrTtotSegments, directedEmissions);
   
   auto nrFiles = inputData.length;
   if(params.nrHaplotypes > 2) {
@@ -289,10 +291,16 @@ void run() {
 
 SegSite_t[][] readDataFromFiles(string[] filenames, bool directedEmissions, size_t[] indices, bool skipAmbiguous) {
   SegSite_t[][] ret;
+  auto nrIndices = indices.length;
   foreach(filename; filenames) {
-    auto data = readSegSites(filename, directedEmissions, indices, skipAmbiguous);
-    logInfo(format("read %s SNPs from file %s\n", data.length, filename));
-    ret ~= data;
+    foreach(i; 0 .. nrIndices - 1) {
+      foreach(j; i + 1 .. nrIndices) {
+        auto ind = [indices[i], indices[j]];
+        auto data = readSegSites(filename, directedEmissions, ind, skipAmbiguous);
+        logInfo(format("read %s SNPs from file %s, using indices %s\n", data.length, filename, ind));
+        ret ~= data;
+      }
+    }
   }
   return ret;
 }

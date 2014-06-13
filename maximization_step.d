@@ -22,16 +22,14 @@ import std.stdio;
 import std.random;
 import std.exception;
 import std.algorithm;
-import model.msmc_model;
-import model.triple_index;
-import model.triple_index_marginal;
+import model.psmc_model;
 import powell;
 import logger;
 
-MSMCmodel getMaximization(double[] eVec, double[][] eMat, MSMCmodel params, in size_t[] timeSegmentPattern,
-                          bool fixedPopSize, bool fixedRecombination)
+PSMCmodel getMaximization(double[][] transitions, double[][2] emissions, PSMCmodel params,
+                          in size_t[] timeSegmentPattern, bool fixedRecombination)
 {
-  auto minFunc = new MinFunc(eVec, eMat, params, timeSegmentPattern, fixedPopSize, fixedRecombination);
+  auto minFunc = new MinFunc(transitions, emissions, params, timeSegmentPattern, fixedRecombination);
 
   auto powell = new Powell!MinFunc(minFunc);
   auto x = minFunc.initialValues();
@@ -44,32 +42,28 @@ MSMCmodel getMaximization(double[] eVec, double[][] eMat, MSMCmodel params, in s
 
 class MinFunc {
   
-  MSMCmodel initialParams;
+  PSMCmodel initialParams;
   const size_t[] timeSegmentPattern;
-  size_t nrSubpopPairs, nrParams;
-  const double[] expectationResultVec;
-  const double[][] expectationResultMat;
-  bool fixedPopSize, fixedRecombination;
+  size_t nrParams;
+  const double[][] transitions;
+  const double[][2] emissions;
+  bool fixedRecombination;
   
-  this(in double[] expectationResultVec, in double[][] expectationResultMat, MSMCmodel initialParams,
-       in size_t[] timeSegmentPattern, bool fixedPopSize, bool fixedRecombination)
+  this(in double[][] transitions, in double[][2] emissions, PSMCmodel initialParams,
+       in size_t[] timeSegmentPattern, bool fixedRecombination)
   {
     this.initialParams = initialParams;
     this.timeSegmentPattern = timeSegmentPattern;
-    this.expectationResultVec = expectationResultVec;
-    this.expectationResultMat = expectationResultMat;
-    this.fixedPopSize = fixedPopSize;
+    this.transitions = transitions;
+    this.emissions = emissions;
     this.fixedRecombination = fixedRecombination;
-    nrSubpopPairs = initialParams.nrSubpopulations * (initialParams.nrSubpopulations + 1) / 2;
-    nrParams = nrSubpopPairs * cast(size_t)timeSegmentPattern.length;
+    nrParams = cast(size_t)timeSegmentPattern.length;
     if(!fixedRecombination)
       nrParams += 1;
-    if(fixedPopSize)
-      nrParams -= initialParams.nrSubpopulations * cast(size_t)timeSegmentPattern.length;
   }
   
   double opCall(in double[] x) {
-    MSMCmodel newParams = makeParamsFromVec(x);
+    PSMCmodel newParams = makeParamsFromVec(x);
     return -logLikelihood(newParams);
   };
   
@@ -84,87 +78,26 @@ class MinFunc {
     return x;
   }
   
-  double[] getXfromLambdaVec(double[] lambdaVec)
+  double[] getXfromLambdaVec(in double[] lambdaVec)
   out(x) {
-    if(fixedPopSize)
-      assert(x.length == timeSegmentPattern.length * (nrSubpopPairs - initialParams.nrSubpopulations));
-    else
-      assert(x.length == timeSegmentPattern.length * nrSubpopPairs);
+    assert(x.length == timeSegmentPattern.length);
   }
   body {
     double[] ret;
-    size_t count = 0;
+    size_t lIndex = 0;
     foreach(nrIntervalsInSegment; timeSegmentPattern) {
-      foreach(subpopPairIndex; 0 .. nrSubpopPairs) {
-        auto lIndex = count * nrSubpopPairs + subpopPairIndex;
-        auto tripleIndex = initialParams.marginalIndex.getIndexFromMarginalIndex(lIndex);
-        auto triple = initialParams.marginalIndex.getTripleFromIndex(tripleIndex);
-        auto p1 = initialParams.subpopLabels[triple.ind1];
-        auto p2 = initialParams.subpopLabels[triple.ind2];
-        if(p1 == p2) {
-          if(!fixedPopSize) {
-            ret ~= log(lambdaVec[lIndex]);
-          }
-        }
-        else {
-          auto marginalIndex1 = initialParams.marginalIndex.subpopulationTripleToMarginalIndexMap[triple.time][p1][p1];
-          auto marginalIndex2 = initialParams.marginalIndex.subpopulationTripleToMarginalIndexMap[triple.time][p2][p2];
-          auto lambda1 = lambdaVec[marginalIndex1];
-          auto lambda2 = lambdaVec[marginalIndex2];
-          auto lambda12 = lambdaVec[lIndex];
-          if(lambda12 >= 0.5 * (lambda1 + lambda2))
-            lambda12 = 0.4999999999 * (lambda1 + lambda2);
-          auto ratio = 2.0 * lambda12 / (lambda1 + lambda2);
-          ret ~= tan(ratio * PI - PI_2);
-        }
-      }
-      count += nrIntervalsInSegment;
+      ret ~= log(lambdaVec[lIndex]);
+      lIndex += nrIntervalsInSegment;
     }
     return ret;
   }
   
-  MSMCmodel makeParamsFromVec(in double[] x) {
-    auto lambdaVec = fixedPopSize ? getLambdaVecFromXfixedPop(x) : getLambdaVecFromX(x);
+  PSMCmodel makeParamsFromVec(in double[] x) {
+    auto lambdaVec = getLambdaVecFromX(x);
     auto recombinationRate = fixedRecombination ? initialParams.recombinationRate : getRecombinationRateFromX(x);
-    return new MSMCmodel(initialParams.mutationRate, recombinationRate, initialParams.subpopLabels, lambdaVec, initialParams.nrTimeIntervals, initialParams.nrTtotIntervals, initialParams.emissionRate.directedEmissions);
+    return new PSMCmodel(initialParams.mutationRate, recombinationRate, lambdaVec, initialParams.nrStates);
   }
-  
-  double[] getLambdaVecFromXfixedPop(in double[] x)
-  in {
-    assert(x.length == nrParams);
-  }
-  body {
-    auto lambdaVec = initialParams.lambdaVec.dup;
-    auto timeIndex = 0U;
-    auto valuesPerTime = nrSubpopPairs - initialParams.nrSubpopulations;
-    foreach(segmentIndex, nrIntervalsInSegment; timeSegmentPattern) {
-      foreach(intervalIndex; 0 .. nrIntervalsInSegment) {
-        auto xIndex = 0;
-        foreach(subpopPairIndex; 0 .. nrSubpopPairs) {
-          auto lIndex = timeIndex * nrSubpopPairs + subpopPairIndex;
-          auto tripleIndex = initialParams.marginalIndex.getIndexFromMarginalIndex(lIndex);
-          auto triple = initialParams.marginalIndex.getTripleFromIndex(tripleIndex);
-          auto p1 = initialParams.subpopLabels[triple.ind1];
-          auto p2 = initialParams.subpopLabels[triple.ind2];
-
-          if(p1 != p2) {
-            auto marginalIndex1 = 
-                initialParams.marginalIndex.subpopulationTripleToMarginalIndexMap[triple.time][p1][p1];
-            auto marginalIndex2 = 
-                initialParams.marginalIndex.subpopulationTripleToMarginalIndexMap[triple.time][p2][p2];
-            auto lambda1 = lambdaVec[marginalIndex1];
-            auto lambda2 = lambdaVec[marginalIndex2];
-            auto ratio = (atan(x[segmentIndex * valuesPerTime + xIndex]) + PI_2) / PI;
-            lambdaVec[lIndex] = ratio * 0.5 * (lambda1 + lambda2);
-            xIndex += 1;
-          }
-        }
-        timeIndex += 1;
-      }
-    }
-    return lambdaVec;
-  }
-  
+    
   double[] getLambdaVecFromX(in double[] x)
   in {
     assert(x.length == nrParams);
@@ -174,30 +107,8 @@ class MinFunc {
     auto timeIndex = 0U;
     foreach(segmentIndex, nrIntervalsInSegment; timeSegmentPattern) {
       foreach(intervalIndex; 0 .. nrIntervalsInSegment) {
-        foreach(subpopPairIndex; 0 .. nrSubpopPairs) {
-          auto lIndex = timeIndex * nrSubpopPairs + subpopPairIndex;
-          auto xIndex = segmentIndex * nrSubpopPairs + subpopPairIndex;
-          lambdaVec[lIndex] = exp(x[xIndex]);
-        }
-        foreach(subpopPairIndex; 0 .. nrSubpopPairs) {
-          auto lIndex = timeIndex * nrSubpopPairs + subpopPairIndex;
-          auto tripleIndex = initialParams.marginalIndex.getIndexFromMarginalIndex(lIndex);
-          auto triple = initialParams.marginalIndex.getTripleFromIndex(tripleIndex);
-          auto p1 = initialParams.subpopLabels[triple.ind1];
-          auto p2 = initialParams.subpopLabels[triple.ind2];
-
-          if(p1 != p2) {
-            auto xIndex = segmentIndex * nrSubpopPairs + subpopPairIndex;
-            auto marginalIndex1 = 
-                initialParams.marginalIndex.subpopulationTripleToMarginalIndexMap[triple.time][p1][p1];
-            auto marginalIndex2 = 
-                initialParams.marginalIndex.subpopulationTripleToMarginalIndexMap[triple.time][p2][p2];
-            auto lambda1 = lambdaVec[marginalIndex1];
-            auto lambda2 = lambdaVec[marginalIndex2];
-            auto ratio = (atan(x[xIndex]) + PI_2) / PI;
-            lambdaVec[lIndex] = ratio * 0.5 * (lambda1 + lambda2);
-          }
-        }
+        auto xIndex = segmentIndex;
+        lambdaVec[timeIndex] = exp(x[xIndex]);
         timeIndex += 1;
       }
     }
@@ -213,15 +124,14 @@ class MinFunc {
     return exp(x[$ - 1]);
   }
 
-  double logLikelihood(MSMCmodel params) {
+  double logLikelihood(PSMCmodel params) {
     double ret = 0.0;
-    foreach(au; 0 .. initialParams.nrMarginals) {
-      foreach(bv; 0 .. initialParams.nrMarginals) {
-        ret += expectationResultMat[au][bv] * log(params.transitionRate.transitionProbabilityQ2(au, bv));
+    foreach(a; 0 .. initialParams.nrStates) {
+      foreach(b; 0 .. initialParams.nrStates) {
+        ret += transitions[a][b] * log(params.transitionProb(a, b));
       }
-      ret += expectationResultVec[au] * log(
-        params.transitionRate.transitionProbabilityQ1(au) + params.transitionRate.transitionProbabilityQ2(au, au)
-      );
+      ret += emissions[0][a] * log(params.emissionProb(1, a));
+      ret += emissions[1][a] * log(params.emissionProb(2, a));
     }
     return ret;
   }
@@ -232,51 +142,25 @@ unittest {
   writeln("test minfunc.getLambdaFromX");
   import std.conv;
   
-  auto lambdaVec = [1, 1.5, 3, 1, 1.5, 3, 4, 4.5, 6, 4, 4.5, 6];
-  auto params = new MSMCmodel(0.01, 0.001, [0U, 0, 1, 1], lambdaVec, 4, 4, false);
-  auto expectationResultVec = new double[params.nrMarginals];
-  auto expectationResultMat = new double[][](params.nrMarginals, params.nrMarginals);
+  auto lambdaVec = [1.0, 1, 4, 4];
+  auto params = new PSMCmodel(0.01, 0.001, lambdaVec, 4);
+  auto transitions = new double[][](params.nrStates, params.nrStates);
+  double[][2] emissions = [new double[params.nrStates], new double[params.nrStates]];
   auto timeSegmentPattern = [2UL, 2];
   
-  auto minFunc = new MinFunc(expectationResultVec, expectationResultMat, params, timeSegmentPattern, false, false);
+  auto minFunc = new MinFunc(transitions, emissions, params, timeSegmentPattern, false);
   auto rho = 0.001;
   auto x = minFunc.getXfromLambdaVec(lambdaVec);
-  x ~= minFunc.getXfromRecombinationRate(rho);
+  x ~= log(rho);
   auto lambdaFromX = minFunc.getLambdaVecFromX(x);
   auto rhoFromX = minFunc.getRecombinationRateFromX(x);
   foreach(i; 0 .. lambdaVec.length)
     assert(approxEqual(lambdaFromX[i], lambdaVec[i], 1.0e-8, 0.0), text(lambdaFromX[i], " ", lambdaVec[i]));
   assert(approxEqual(rhoFromX, rho, 1.0e-8, 0.0));
 
-  minFunc = new MinFunc(expectationResultVec, expectationResultMat, params, timeSegmentPattern, true, false);
-  x = minFunc.getXfromLambdaVec(lambdaVec);
-  x ~= minFunc.getXfromRecombinationRate(rho);
-  lambdaFromX = minFunc.getLambdaVecFromXfixedPop(x);
-  rhoFromX = minFunc.getRecombinationRateFromX(x);
-  foreach(i; 0 .. lambdaVec.length)
-    assert(approxEqual(lambdaFromX[i], lambdaVec[i], 1.0e-8, 0.0), text(lambdaFromX[i], " ", lambdaVec[i]));
-  assert(approxEqual(rhoFromX, rho, 1.0e-8, 0.0));
-
-  minFunc = new MinFunc(expectationResultVec, expectationResultMat, params, timeSegmentPattern, false, true);
+  minFunc = new MinFunc(transitions, emissions, params, timeSegmentPattern, true);
   x = minFunc.getXfromLambdaVec(lambdaVec);
   lambdaFromX = minFunc.getLambdaVecFromX(x);
   foreach(i; 0 .. lambdaVec.length)
     assert(approxEqual(lambdaFromX[i], lambdaVec[i], 1.0e-8, 0.0), text(lambdaFromX[i], " ", lambdaVec[i]));
 }
-  
-// unittest {
-//   import std.random;
-//   writeln("test maximization step");
-//   auto lambdaVec = new double[12];
-//   lambdaVec[] = 1.0;
-//   auto params = new MSMCmodel(0.01, 0.001, [0UL, 0, 1, 1], lambdaVec, 4, 4);
-// 
-//   auto expectationMatrix = new double[][](12, 12);
-//   foreach(i; 0 .. 12) foreach(j; 0 .. 12)
-//     expectationMatrix[i][j] = params.transitionRate.transitionProbabilityMarginal(i, j) * uniform(700, 1300);
-//   auto timeSegmentPattern = [2UL, 2];
-//   auto updatedParams = getMaximization(expectationMatrix, params, timeSegmentPattern, false, true);
-//     
-//   writeln("Maximization test: actual params: ", params);
-//   writeln("Maximization test: inferred params: ", updatedParams);
-// }
