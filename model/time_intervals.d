@@ -28,9 +28,9 @@ class TimeIntervals {
   const double[] boundaries;
   alias BoundaryFunction_t = double function(size_t, size_t, double);
   
-  static double computeLiAndDurbinBoundary(size_t i, size_t nrTimeSegments, double factor) {
+  static double computeLiAndDurbinBoundary(size_t i, size_t nrTimeSegments, double factor=0.1) {
     auto tMax = 15.0;
-    auto boundary = factor * (0.1 * (exp(i / cast(double)nrTimeSegments * log(1.0 + 10.0 * tMax)) - 1.0));
+    auto boundary = factor * (exp(i / cast(double)nrTimeSegments * log(1.0 + tMax / factor)) - 1.0);
     if(i == nrTimeSegments)
       boundary = double.infinity;
     return boundary;
@@ -49,16 +49,16 @@ class TimeIntervals {
     return boundaries;
   }
   
-  static double[] getQuantileBoundaries(size_t nrTimeSegments, double factor) {
+  static double[] getQuantileBoundaries(size_t nrTimeSegments, double factor=1.0) {
     return getBoundaries(&computeQuantileBoundary, nrTimeSegments, factor);
   }
 
-  static double[] getLiAndDurbinBoundaries(size_t nrTimeSegments, double factor) {
+  static double[] getLiAndDurbinBoundaries(size_t nrTimeSegments, double factor=0.1) {
     return getBoundaries(&computeLiAndDurbinBoundary, nrTimeSegments, factor);
   }
   
-  static TimeIntervals standardIntervals(size_t nrTimeSegments, double factor=1.0) {
-    auto bound = TimeIntervals.getQuantileBoundaries(nrTimeSegments, factor);
+  static TimeIntervals standardIntervals(size_t nrTimeSegments, double factor=0.1) {
+    auto bound = TimeIntervals.getLiAndDurbinBoundaries(nrTimeSegments, factor);
     return new TimeIntervals(bound);
   }
   

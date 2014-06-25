@@ -55,7 +55,7 @@ double[] lambdaVec;
 size_t nrTimeSegments;
 size_t[] indices;
 string logFileName, loopFileName, finalFileName;
-double time_factor = 1.0;
+double time_factor = 0.1;
 
 
 auto helpString = "Usage: msmc [options] <datafiles>
@@ -224,8 +224,6 @@ void run() {
     auto newParams = getMaximization(transitions, emissions, params, timeSegmentPattern, fixedRecombination);
     params = newParams;
   }
-  
-  auto 
   
   printFinal(finalFileName, params);
 }
