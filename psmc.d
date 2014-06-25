@@ -53,8 +53,9 @@ SegSite_t[][] inputData;
 size_t hmmStrideWidth = 1000;
 double[] lambdaVec;
 size_t nrTimeSegments;
-size_t[2] indices;
+size_t[] indices;
 string logFileName, loopFileName, finalFileName;
+double time_factor = 1.0;
 
 
 auto helpString = "Usage: msmc [options] <datafiles>
@@ -75,7 +76,8 @@ auto helpString = "Usage: msmc [options] <datafiles>
     --hmmStrideWidth <int> : stride width to traverse the data in the expectation step [default=1000]
     --initialLambdaVec <str> : comma-separated string of lambda-values to start with. This can be used to
       continue a previous run by copying the values in the last row and the third column of the corresponding
-      *.loop file";
+      *.loop file
+    --time_factor <double>: factor to reduce or extent the time intervals";
 
 void main(string[] args) {
   try {
@@ -137,16 +139,18 @@ void parseCommandLine(string[] args) {
       "hmmStrideWidth", &hmmStrideWidth,
       "fixedRecombination|R", &fixedRecombination,
       "initialLambdaVec", &handleLambdaVecString,
-      "treeFileNames", &handleTreeFileNames
+      "treeFileNames", &handleTreeFileNames,
+      "time_factor", &time_factor
   );
   if(nrThreads)
     std.parallelism.defaultPoolThreads(nrThreads);
   enforce(args.length > 1, "need at least one input file");
   enforce(hmmStrideWidth > 0, "hmmStrideWidth must be positive");
   inputFileNames = args[1 .. $];
-  if(indices == [0UL, 0])
-    indices = [0UL, 1];
-  enforce(indices[0] < indices[1]);
+  if(indices.length == 0) {
+    auto nrHaplotypes = getNrHaplotypesFromFile(inputFileNames[0]);
+    indices = iota(nrHaplotypes).array();
+  }
   inputData = readDataFromFiles(inputFileNames, indices, skipAmbiguous);
   if(isNaN(mutationRate)) {
     stderr.write("estimating mutation rate: ");
@@ -188,16 +192,18 @@ void printGlobalParams() {
   logInfo(format("logging information written to %s\n", logFileName));
   logInfo(format("loop information written to %s\n", loopFileName));
   logInfo(format("final results written to %s\n", finalFileName));
+  logInfo(format("time factor:         %s\n", time_factor));
   if(verbose)
     logInfo(format("transition matrices written to %s.loop_*.expectationMatrix.txt\n", outFilePrefix));
 }
 
 void run() {
   PSMCmodel params;
+  auto timeIntervals = TimeIntervals.standardIntervals(nrTimeSegments, time_factor);
   if(lambdaVec.length == 0)
-    params = new PSMCmodel(mutationRate, recombinationRate, nrTimeSegments);
+    params = new PSMCmodel(mutationRate, recombinationRate, timeIntervals);
   else
-    params = new PSMCmodel(mutationRate, recombinationRate, lambdaVec, nrTimeSegments);
+    params = new PSMCmodel(mutationRate, recombinationRate, lambdaVec, timeIntervals);
   
   auto nrFiles = inputData.length;
 
@@ -219,15 +225,22 @@ void run() {
     params = newParams;
   }
   
+  auto 
+  
   printFinal(finalFileName, params);
 }
 
-SegSite_t[][] readDataFromFiles(string[] filenames, size_t[2] indices, bool skipAmbiguous) {
+SegSite_t[][] readDataFromFiles(string[] filenames, size_t[] indices, bool skipAmbiguous) {
   SegSite_t[][] ret;
   foreach(filename; filenames) {
-    auto data = readSegSites(filename, indices, skipAmbiguous);
-    logInfo(format("read %s SNPs from file %s\n", data.length, filename));
-    ret ~= data;
+    foreach(i; 0 .. indices.length - 1) {
+      foreach(j; i + 1 .. indices.length) {
+        size_t[2] ind_pair = [indices[i], indices[j]];
+        auto data = readSegSites(filename, ind_pair, skipAmbiguous);
+        logInfo(format("read %s SNPs from file %s, using indices %s\n", data.length, filename, ind_pair));
+        ret ~= data;
+      }
+    }
   }
   return ret;
 }

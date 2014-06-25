@@ -64,15 +64,29 @@ class PSMCmodel {
   
   double emissionProb(size_t id, size_t timeIndex) const {
     auto t = timeIntervals.meanTimeWithLambda(timeIndex, lambdaVec[timeIndex]);
-    switch(id) {
-      case 0:
+    if(id == 0)
       return 1.0;
-      case 1:
-      return exp(-2.0 * mutationRate * t);
-      case 2:
-      return 1.0 - exp(-2.0 * mutationRate * t);
-      default:
-      assert(false);
+    else {
+      auto lb = lambdaVec[timeIndex];
+      auto tb = timeIntervals.leftBoundary(timeIndex);
+      auto db = timeIntervals.delta(timeIndex);
+      double homProb;
+      if(timeIndex == timeIntervals.nrIntervals - 1 ) {
+        homProb = exp(-2.0 * mutationRate * tb) * lb / (2.0 * mutationRate + lb);
+      }
+      else {
+        auto secondTerm = exp(-2.0 * mutationRate * tb) * (1.0 - exp(-(2.0 * mutationRate + lb) * db));
+        if(lb < 0.001)
+          homProb = 1.0 / (db * 2.0 * mutationRate) * secondTerm;
+        else
+          homProb = 1.0 / (1.0 - exp(-db * lb)) * lb / (lb + 2.0 * mutationRate) * secondTerm;
+      }
+      if(id == 1)
+        return homProb;
+      if(id == 2)
+        return 1.0 - homProb;
+      else
+        assert(false);
     }
   }
   

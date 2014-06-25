@@ -95,7 +95,7 @@ class MinFunc {
   PSMCmodel makeParamsFromVec(in double[] x) {
     auto lambdaVec = getLambdaVecFromX(x);
     auto recombinationRate = fixedRecombination ? initialParams.recombinationRate : getRecombinationRateFromX(x);
-    return new PSMCmodel(initialParams.mutationRate, recombinationRate, lambdaVec, initialParams.nrStates);
+    return new PSMCmodel(initialParams.mutationRate, recombinationRate, lambdaVec, initialParams.timeIntervals);
   }
     
   double[] getLambdaVecFromX(in double[] x)
