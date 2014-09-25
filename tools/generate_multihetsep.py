@@ -6,7 +6,12 @@ import string
 import copy
 import argparse
 import io
-
+PYFAIDX_AVAILABLE=True
+try:
+  from pyfaidx import Fasta
+except ImportError:
+  PYFAIDX_AVAILABLE=False
+  
 class MaskIterator:
   def __init__(self, filename, negative=False):
     if filename[-3:] == ".gz":
@@ -41,6 +46,24 @@ class MaskIterator:
     else:
       return False if not self.negative else True
 
+class FaMaskIterator:
+  '''
+  This is a fasta file with the digits 0-9 giving filtering level. 
+  Includes every base at level or higher
+  '''
+  def __init__(self, filename, level=None, chr=None):
+    self.file=Fasta(filename)
+    self.level=level
+    self.chr=chr
+
+  def getVal(self, pos):
+    try:
+      value=int(self.file[self.chr][pos].seq)
+    except ValueError:
+      return False
+
+    return value >= self.level
+
 class MergedMask:
   def __init__(self, mask_iterators):
     self.maskIterators = mask_iterators
@@ -51,7 +74,7 @@ class MergedMask:
 class VcfIterator:
   def __init__(self, filename):
     self.file = io.TextIOWrapper(gzip.open(filename, "r"))
-  
+
   def __iter__(self):
     return self
   
@@ -144,6 +167,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument("files", nargs="+", help="Input VCF files")
 parser.add_argument("--mask", action="append", help="apply masks in bed format, should be given once for the calling mask from each individual, and in addition can be given for e.g. mappability or admixture masks")
 parser.add_argument("--negative_mask", action="append", help="same as mask, but interpreted as negative mask, so places where sites should be excluded")
+parser.add_argument("--fa_mask", action="append", help="apply masks in fasta format numerical quality per base")
+parser.add_argument("--fa_mask_level", action="store", help="include bases at or above this level", type=int)
+parser.add_argument("--fa_mask_chr", action="store", help="which chromosome in the mask", type=str)
+
 args = parser.parse_args()
 
 nrIndidividuals = len(args.files)
@@ -161,6 +188,12 @@ if args.negative_mask:
   for nm in args.negative_mask:
     sys.stderr.write("adding negative mask: {}\n".format(nm))
     maskIterators.append(MaskIterator(nm, True))
+if args.fa_mask:
+  if not PYFAIDX_AVAILABLE:
+    raise Exception("module pyfaidx not available")
+  for f in args.fa_mask:
+    sys.stderr.write("adding mask: {}\n".format(f))    
+    maskIterators.append(FaMaskIterator(f, level=args.fa_mask_level, chr=args.fa_mask_chr))
 
 mergedMask = MergedMask(maskIterators)
 
@@ -174,18 +207,24 @@ def is_segregating(alleles):
 
 pos = 0
 nr_called = 0
+total_called=0
+chunk_called=0
+CHUNK_SIZE=1000000
 for chrom, snp_pos, alleles in joinedVcfIterator:
   # sys.stderr.write("{}\t{}\t{}\n".format(chrom, snp_pos, alleles))
   while pos < snp_pos:
     pos += 1
     if mergedMask.getVal(pos):
       nr_called += 1
-    if pos % 1000000 == 0:
-      print("processing pos {}".format(pos), file=sys.stderr)
+      total_called += 1
+      chunk_called += 1
+    if pos % CHUNK_SIZE == 0:
+      print("processing pos {} (called {:2.3f}% total, {:2.3f}% this chunk)".format(pos, 100.0*total_called/pos, 100.0*chunk_called/CHUNK_SIZE), file=sys.stderr)
+      chunk_called=0
   if mergedMask.getVal(snp_pos):
     if is_segregating(alleles):
       print(chrom, snp_pos, nr_called, alleles, sep="\t")
       nr_called = 0
-  
+print("processed pos {} (called {:2.3f}% total, {:2.3f}% this chunk)".format(pos, 100.0*total_called/pos, 100.0*chunk_called/CHUNK_SIZE), file=sys.stderr)
   
   
